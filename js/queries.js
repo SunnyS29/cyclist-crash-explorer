@@ -97,6 +97,19 @@ export const queries = {
           GROUP BY year ORDER BY year`,
   }),
 
+  dangerousYears: (f = {}) => ({
+    title: "Most dangerous years",
+    caption: `Years ranked by recorded cyclist crashes (${rangeLabel(f)}).${partialYearNote(f)}`,
+    render: "bar",
+    answer: (rows) => {
+      const r = rows[0];
+      return r ? `${r.label} had the most recorded cyclist crashes: ${fmt(r.value)} in ${rangeLabel(f)}.${partialYearNote(f)}` : "";
+    },
+    sql: `SELECT CAST(year AS VARCHAR) AS label, COUNT(*) AS value
+          FROM ${T} ${yearClause(f)}
+          GROUP BY year ORDER BY value DESC, year DESC`,
+  }),
+
   byHour: (f = {}) => ({
     title: `When crashes happen${f.council ? ` in ${titleCase(f.council)}` : ""}`,
     caption: `Crashes by hour of day, weekday vs weekend${f.council ? ` in ${titleCase(f.council)}` : ""} (${rangeLabel(f)}).`,

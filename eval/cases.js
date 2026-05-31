@@ -21,6 +21,8 @@ export const cases = [
   { input: "is it getting safer over time", builder: "yearlyTrend" },
   { input: "yearly trend", builder: "yearlyTrend" },
   { input: "crashes by year", builder: "yearlyTrend" },
+  { input: "what is the most dangerous year", builder: "dangerousYears" },
+  { input: "which year had the most crashes", builder: "dangerousYears" },
   { input: "morning rush hour", builder: "rushHour" },
   { input: "evening commute", builder: "rushHour" },
   { input: "safest time to go cycling on weekend", builder: "safestTime" },

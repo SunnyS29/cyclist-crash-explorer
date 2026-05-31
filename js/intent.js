@@ -160,6 +160,9 @@ export function parseIntent(raw) {
   if (has(text, "trend", "over time", "safer", "getting", "by year", "each year", "yearly"))
     return { builder: "yearlyTrend", params: {}, year, matchedOn: "trend" };
 
+  if (has(text, "most dangerous year", "worst year", "most crashes year", "year had the most"))
+    return { builder: "dangerousYears", params: {}, year, matchedOn: "dangerous-year" };
+
   if (has(text, "safest time", "safest hour", "safe time", "least dangerous time")) {
     const period = has(text, "weekend", "saturday", "sunday") ? "weekend" :
       has(text, "weekday", "monday", "tuesday", "wednesday", "thursday", "friday") ? "weekday" : "all";
