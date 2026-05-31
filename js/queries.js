@@ -202,13 +202,13 @@ export const queries = {
   }),
 
   byRoadGeometry: (f = {}) => ({
-    title: "Most common intersection crash types",
-    caption: `Crash counts by intersection geometry${f.council ? ` in ${titleCase(f.council)}` : ""} (${rangeLabel(f)}). Excludes the broad "not at intersection" bucket because it mostly reflects exposure, not a specific road design.`,
+    title: "Where intersection crashes happen",
+    caption: `Cyclist crashes by intersection type${f.council ? ` in ${titleCase(f.council)}` : ""} (${rangeLabel(f)}). Excludes the broad "not at intersection" bucket because it mostly reflects how many non-intersection roads there are.`,
     render: "bar",
     answer: (rows) => {
       const r = rows[0];
       const place = f.council ? ` in ${titleCase(f.council)}` : "";
-      return r ? `${titleCase(r.label)} is the most common recorded intersection geometry${place}, with ${fmt(r.value)} cyclist crashes.` : "";
+      return r ? `${titleCase(r.label)} had the most recorded cyclist crashes${place}, with ${fmt(r.value)} crashes.` : "";
     },
     sql: `SELECT road_geometry AS label, COUNT(*) AS value
           FROM ${T} ${joinConditions(f, [
