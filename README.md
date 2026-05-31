@@ -1,67 +1,126 @@
 # Melbourne Cyclist Crash Explorer
 
-A static, browser-only analytics tool for exploring 13 years of VicRoads cyclist
-crash data (2012–2025, 16,056 records). No backend, no build step — DuckDB WASM
-runs SQL against a Parquet file entirely in the browser.
+Melbourne Cyclist Crash Explorer is a static browser app for exploring cyclist crash data from VicRoads records.
 
-Live questions it answers: which councils are most dangerous, whether it's
-getting safer over time, when crashes happen, how serious they are, and more.
+The app runs DuckDB WASM in the browser, queries a local Parquet file, and returns plain-English answers with charts and raw table output.
 
-## Run locally
+Live demo:
+https://sunnys29.github.io/cyclist-crash-explorer/
+
+## The Problem
+
+Cyclist crash data is useful, but it is not always easy to explore without a dashboard or SQL knowledge.
+
+This project was built to let a non-technical user ask questions like:
+
+- `fatal crashes in Yarra 2023`
+- `serious injuries in Merri-bek`
+- `safest suburb`
+- `morning rush hour`
+- `intersections in Port Phillip`
+- `8am crashes since 2020`
+
+The app gives a direct answer first, then shows the supporting chart and data table.
+
+## The Workflow
+
+### 1. Data Export
+
+`export_parquet.py` converts the source CSV into `data/crashes.parquet`.
+
+During export:
+- raw column names are mapped to simpler names
+- `crash_hour` is derived from the accident time
+- Moreland is normalised to Merri-bek
+
+### 2. Browser Query Engine
+
+DuckDB WASM loads in the browser and queries the Parquet file directly.
+
+The Parquet file is fetched as bytes and registered with DuckDB using `registerFileBuffer`, which avoids static-hosting issues with HTTP range requests.
+
+### 3. Plain-English Search
+
+`js/intent.js` maps common phrases into query parameters.
+
+It supports:
+- council and common suburb aliases
+- years and year ranges
+- `since`, `before`, and `after` year phrases
+- fatal, non-fatal, and serious injury questions
+- rush hour, weekday, weekend, day, and hour questions
+- intersection geometry questions
+- safest and worst council-area rankings by crash count
+
+Unsupported questions return a clear fallback instead of pretending the data can answer them.
+
+### 4. SQL Query Builders
+
+`js/queries.js` builds the SQL and formats the direct answer shown above the chart.
+
+The parser and query builders are kept separate from the DOM so they can be tested from Node.
+
+## Data Notes
+
+- Source: VicRoads cyclist crash records
+- Coverage: 2012 to 2025
+- Records: 16,056
+- Geography: Local Government Area / council area
+- Dataset is static, not live
+
+The dataset does not include a suburb column. Searches such as `Brunswick` are resolved through a small suburb-to-council alias table and return the relevant council area, not true suburb-level counts.
+
+The app shows raw crash counts. It does not calculate true risk rates because the dataset does not include population, cycling volume, road length, or exposure data.
+
+## File Setup
+
+```text
+index.html
+js/app.js
+js/queries.js
+js/intent.js
+data/crashes.parquet
+data/melbourne_cyclist_crashes.csv
+export_parquet.py
+eval/
+```
+
+## Run Locally
+
+Serve the folder over HTTP:
 
 ```bash
-python -m http.server 8000   # serve from this folder
-# open http://localhost:8000/
+python -m http.server 8000
 ```
 
-ES modules and the Parquet fetch require HTTP — opening `index.html` via
-`file://` will not work.
+Open:
 
-## Structure
-
-```
-index.html              UI + layout
-js/app.js               DuckDB WASM init, UI wiring, Chart.js rendering
-js/queries.js           pure SQL builders (Node-testable)
-js/intent.js            plain-English -> query-builder parser (pure)
-data/crashes.parquet    the dataset (generated, 333 KB)
-export_parquet.py       CSV -> Parquet pipeline (run once)
-eval/                   intent-accuracy evaluation harness
+```text
+http://localhost:8000/
 ```
 
-`intent.js` and `queries.js` are kept free of DOM/DuckDB dependencies so the
-parsing logic can be evaluated in isolation.
+Do not open `index.html` with `file://`. ES modules and data loading need HTTP.
 
-## Data pipeline
+## Regenerate Data
 
 ```bash
-python export_parquet.py   # data/melbourne_cyclist_crashes.csv -> data/crashes.parquet
+python export_parquet.py
 ```
-
-The raw CSV column names are remapped to query-friendly names in this one script
-(e.g. `accident_date` -> `crash_date`, `lga_name` -> `council_area`,
-`accident_time` -> derived `crash_hour`). Moreland records are normalised to
-Merri-bek so the renamed council has a continuous history.
 
 ## Evaluation
 
-The natural-language layer is the easiest part to silently regress, so it has a
-labelled eval (`eval/cases.js`) that asserts each prompt maps to the right query
-builder, council, and year range. It gates at 90% accuracy (currently 100%).
+Run the labelled intent parser eval:
 
-- **Browser:** open `http://localhost:8000/eval/` — renders pass/fail per case.
-- **Node** (if installed): `node eval/run.mjs` — exits non-zero below threshold.
+```bash
+node eval/run.mjs
+```
 
-Add a row to `eval/cases.js` whenever you teach the parser a new phrase, then
-re-run to confirm nothing else regressed.
+The eval checks that natural-language prompts map to the expected query builder, council, and year range.
 
-## Deploy (GitHub Pages)
+Add a new case to `eval/cases.js` whenever the parser learns a new phrase.
 
-Push the repo and enable Pages on `main` / root. No CI or env vars needed.
+## Deployment
 
-## Notes / caveats
+The app is deployed with GitHub Pages from the `main` branch and repository root.
 
-- The dataset has no suburb column, only Local Government Area (council). A small
-  suburb→council alias table in `intent.js` resolves common searches like
-  "Brunswick" → Merri-bek.
-- Static dataset — not live. The date range is shown in the header.
+No backend, build step, database server, or environment variables are required.
