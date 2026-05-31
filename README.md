@@ -124,3 +124,11 @@ Add a new case to `eval/cases.js` whenever the parser learns a new phrase.
 The app is deployed with GitHub Pages from the `main` branch and repository root.
 
 No backend, build step, database server, or environment variables are required.
+
+## License
+
+Copyright 2026 Sunny Sangar. All rights reserved.
+
+This repository is public for portfolio review. Reuse, redistribution, modification, or commercial use is not permitted without written permission.
+
+The underlying public crash data remains subject to its original source terms.
