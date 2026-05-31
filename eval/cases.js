@@ -1,0 +1,29 @@
+// Labelled prompt cases for the intent eval. Each: input text + expected
+// builder, optional expected year range, or expectNull for graceful-fail cases.
+export const cases = [
+  { input: "Brunswick", builder: "council", council: "MERRI-BEK" },
+  { input: "crashes in Yarra", builder: "council", council: "YARRA" },
+  { input: "Port Phillip", builder: "council", council: "PORT PHILLIP" },
+  { input: "st kilda", builder: "council", council: "PORT PHILLIP" },
+  { input: "worst suburbs", builder: "worstCouncils" },
+  { input: "which council has the most crashes", builder: "worstCouncils" },
+  { input: "most dangerous areas for cyclists", builder: "worstCouncils" },
+  { input: "fatal crashes 2023", builder: "fatalCount", year: { min: 2023, max: 2023 } },
+  { input: "how many people were killed", builder: "fatalCount" },
+  { input: "is it getting safer over time", builder: "yearlyTrend" },
+  { input: "yearly trend", builder: "yearlyTrend" },
+  { input: "crashes by year", builder: "yearlyTrend" },
+  { input: "morning rush hour", builder: "byHour" },
+  { input: "what time do crashes happen", builder: "byHour" },
+  { input: "weekends", builder: "byHour" },
+  { input: "when are crashes most likely", builder: "byHour" },
+  { input: "which day of week is worst", builder: "byDayOfWeek" },
+  { input: "how serious are crashes", builder: "bySeverity" },
+  { input: "serious injuries", builder: "bySeverity" },
+  { input: "most dangerous intersections", builder: "byRoadGeometry" },
+  { input: "what kinds of roads are dangerous", builder: "byRoadGeometry" },
+  { input: "crashes between 2018 and 2020", builder: "yearlyTrend", year: { min: 2018, max: 2020 } },
+  // Graceful-fail cases (no confident match -> suggest cards):
+  { input: "asdfghjkl", expectNull: true },
+  { input: "what is the meaning of life", expectNull: true },
+];
