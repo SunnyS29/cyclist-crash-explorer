@@ -35,6 +35,7 @@
 
     .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; }
     #result-title { margin:0 0 4px; font-size:16px; }
+    #result-answer { color:var(--text); font-size:14px; margin:0 0 6px; font-weight:600; }
     #result-caption { color:var(--dim); font-size:13px; margin:0 0 14px; }
     .chart-box { position:relative; height:340px; }
     #stat { display:none; font-size:56px; font-weight:700; color:var(--amber); text-align:center; padding:40px 0; }
@@ -84,6 +85,7 @@
 
       <div class="panel">
         <h2 id="result-title">Results</h2>
+        <p id="result-answer"></p>
         <p id="result-caption"></p>
         <div class="chart-box">
           <canvas id="chart"></canvas>

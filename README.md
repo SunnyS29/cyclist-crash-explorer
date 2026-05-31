@@ -40,7 +40,8 @@ python export_parquet.py   # data/melbourne_cyclist_crashes.csv -> data/crashes.
 
 The raw CSV column names are remapped to query-friendly names in this one script
 (e.g. `accident_date` -> `crash_date`, `lga_name` -> `council_area`,
-`accident_time` -> derived `crash_hour`).
+`accident_time` -> derived `crash_hour`). Moreland records are normalised to
+Merri-bek so the renamed council has a continuous history.
 
 ## Evaluation
 
@@ -62,6 +63,5 @@ Push the repo and enable Pages on `main` / root. No CI or env vars needed.
 
 - The dataset has no suburb column, only Local Government Area (council). A small
   suburb→council alias table in `intent.js` resolves common searches like
-  "Brunswick" → Merri-bek. Moreland was renamed Merri-bek in 2022, so its records
-  are split across both names in the data.
+  "Brunswick" → Merri-bek.
 - Static dataset — not live. The date range is shown in the header.

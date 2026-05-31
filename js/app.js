@@ -13,6 +13,7 @@ import { parseIntent } from "./intent.js";
 const state = { yearMin: 2012, yearMax: 2025 };
 let conn = null;
 let chart = null;
+let activeQuery = null;
 
 // ---- DuckDB init ----------------------------------------------------------
 async function initDuckDB() {
@@ -54,6 +55,8 @@ function destroyChart() {
 function renderResult(spec, rows) {
   destroyChart();
   document.getElementById("result-title").textContent = spec.title;
+  document.getElementById("result-answer").textContent =
+    typeof spec.answer === "function" ? spec.answer(rows) : "";
   document.getElementById("result-caption").textContent = caption(spec, rows);
   renderTable(rows);
 
@@ -68,16 +71,17 @@ function renderResult(spec, rows) {
   stat.style.display = "none";
   canvas.style.display = "block";
 
-  if (spec.render === "line") return drawLine(rows);
+  if (spec.render === "line") return drawLine(rows, spec);
+  if (spec.render === "bar" && spec.series === "hour") return drawBar(rows, "label");
   if (spec.render === "bar" && "weekday" in (rows[0] || {})) return drawGroupedBar(rows);
   return drawBar(rows);
 }
 
-function drawBar(rows) {
+function drawBar(rows, labelKey = "label") {
   chart = new Chart(ctx(), {
     type: "bar",
     data: {
-      labels: rows.map((r) => titleCase(String(r.label))),
+      labels: rows.map((r) => titleCase(String(r[labelKey]))),
       datasets: [{ data: rows.map((r) => r.value), backgroundColor: AMBER }],
     },
     options: baseOpts(),
@@ -98,17 +102,34 @@ function drawGroupedBar(rows) {
   });
 }
 
-function drawLine(rows) {
+function drawLine(rows, spec) {
+  const datasets = [{
+    label: spec.seriesLabel || "Crashes",
+    data: rows.map((r) => r.value),
+    borderColor: AMBER, backgroundColor: AMBER_DIM, tension: 0.25, fill: true,
+  }];
+
+  if ("melbourne_avg" in (rows[0] || {})) {
+    datasets[0].label = spec.seriesLabel || "Selected area";
+    datasets[0].fill = false;
+    datasets.push({
+      label: "Average council area",
+      data: rows.map((r) => r.melbourne_avg),
+      borderColor: "rgba(255,255,255,0.75)",
+      backgroundColor: "rgba(255,255,255,0.12)",
+      borderDash: [6, 4],
+      tension: 0.25,
+      fill: false,
+    });
+  }
+
   chart = new Chart(ctx(), {
     type: "line",
     data: {
       labels: rows.map((r) => String(r.label)),
-      datasets: [{
-        data: rows.map((r) => r.value),
-        borderColor: AMBER, backgroundColor: AMBER_DIM, tension: 0.25, fill: true,
-      }],
+      datasets,
     },
-    options: baseOpts(),
+    options: baseOpts(datasets.length > 1),
   });
 }
 
@@ -139,7 +160,8 @@ function renderTable(rows) {
 }
 
 // ---- Dispatch -------------------------------------------------------------
-async function run(builderName, params = {}, yearOverride = null) {
+async function run(builderName, params = {}, yearOverride = null, remember = true) {
+  if (remember) activeQuery = { builderName, params, yearOverride };
   const filter = yearOverride
     ? { yearMin: yearOverride.min, yearMax: yearOverride.max }
     : { yearMin: state.yearMin, yearMax: state.yearMax };
@@ -162,6 +184,11 @@ function handleSearch(text) {
     return;
   }
   run(intent.builder, intent.params, intent.year);
+}
+
+function rerunActiveWithGlobalYears() {
+  if (!activeQuery || !conn) return;
+  run(activeQuery.builderName, activeQuery.params, null, true);
 }
 
 function setStatus(msg) {
@@ -192,6 +219,7 @@ function wireUI() {
     if (lo > hi) [lo, hi] = [hi, lo];
     state.yearMin = lo; state.yearMax = hi;
     label.textContent = lo === hi ? `${lo}` : `${lo}–${hi}`;
+    rerunActiveWithGlobalYears();
   };
   min.addEventListener("input", onYear);
   max.addEventListener("input", onYear);

@@ -8,10 +8,10 @@
 //   year     – { min, max } override from the text, or null
 //   matchedOn– short reason string (used by eval + debugging)
 
-// 32 LGAs present in the data. Matching is on these council names only;
+// 31 LGAs present in the normalised data. Matching is on these council names only;
 // the dataset has no suburb column, so "Brunswick" maps to its council.
 export const COUNCILS = [
-  "MELBOURNE", "YARRA", "PORT PHILLIP", "MORELAND", "STONNINGTON", "DAREBIN",
+  "MELBOURNE", "YARRA", "PORT PHILLIP", "STONNINGTON", "DAREBIN",
   "BAYSIDE", "BOROONDARA", "GLEN EIRA", "KINGSTON", "MOONEE VALLEY",
   "MORNINGTON PENINSULA", "MONASH", "HOBSONS BAY", "MARIBYRNONG", "BANYULE",
   "WHITEHORSE", "DANDENONG", "WYNDHAM", "FRANKSTON", "BRIMBANK", "WHITTLESEA",
@@ -76,8 +76,13 @@ export function parseIntent(raw) {
   if (has(text, "trend", "over time", "safer", "getting", "by year", "each year", "yearly"))
     return { builder: "yearlyTrend", params: {}, year, matchedOn: "trend" };
 
-  if (has(text, "rush hour", "morning", "evening", "commute", "what time",
-                "time of day", "hour", "when do", "when are", "weekend"))
+  if (has(text, "rush hour", "morning", "evening", "commute")) {
+    const period = has(text, "morning") ? "morning" :
+      has(text, "evening") ? "evening" : "commute";
+    return { builder: "rushHour", params: { period }, year, matchedOn: "rush-hour" };
+  }
+
+  if (has(text, "what time", "time of day", "hour", "when do", "when are", "weekend"))
     return { builder: "byHour", params: {}, year, matchedOn: "time" };
 
   if (has(text, "day of week", "which day", "what day", "weekday"))

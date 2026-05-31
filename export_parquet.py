@@ -11,7 +11,7 @@ script is the single place where that mapping is defined:
     accident_date  -> crash_date   (DATE)
     accident_time  -> crash_hour   (INT 0-23, derived)
     severity_desc  -> severity      (Fatal / Serious Injury / Other Injury)
-    lga_name       -> council_area  (Local Government Area)
+    lga_name       -> council_area  (Local Government Area; Moreland normalised to Merri-bek)
 
 Usage:
     python export_parquet.py
@@ -36,7 +36,10 @@ SELECT
     severity_desc                            AS severity,
     speed_zone,
     road_geometry_desc                       AS road_geometry,
-    lga_name                                 AS council_area,
+    CASE
+        WHEN lga_name = 'MORELAND' THEN 'MERRI-BEK'
+        ELSE lga_name
+    END                                      AS council_area,
     latitude,
     longitude,
     postcode_crash                           AS postcode,
