@@ -25,6 +25,8 @@ export const cases = [
   { input: "evening commute", builder: "rushHour" },
   { input: "safest time to go cycling on weekend", builder: "safestTime" },
   { input: "what time do crashes happen", builder: "byHour" },
+  { input: "most dangerous times in brunswick", builder: "byHour", council: "MERRI-BEK" },
+  { input: "when do crashes happen in Yarra", builder: "byHour", council: "YARRA" },
   { input: "weekends", builder: "byHour" },
   { input: "when are crashes most likely", builder: "byHour" },
   { input: "which day of week is worst", builder: "byDayOfWeek" },

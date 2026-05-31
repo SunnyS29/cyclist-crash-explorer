@@ -172,8 +172,10 @@ export function parseIntent(raw) {
     return { builder: "rushHour", params: { period }, year, matchedOn: "rush-hour" };
   }
 
-  if (has(text, "what time", "time of day", "hour", "when do", "when are", "weekend"))
-    return { builder: "byHour", params: {}, year, matchedOn: "time" };
+  if ((has(text, "what time", "time of day", "hour", "when do", "when are", "weekend") ||
+       (has(text, "most dangerous", "dangerous", "worst") && has(text, "time", "times", "hour", "hours"))) &&
+      !has(text, "intersection", "road", "junction", "roundabout"))
+    return { builder: "byHour", params: { council }, year, matchedOn: "time" };
 
   const day = findDay(text);
   if (day && !has(text, "day of week", "which day", "what day"))

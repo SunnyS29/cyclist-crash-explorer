@@ -98,19 +98,20 @@ export const queries = {
   }),
 
   byHour: (f = {}) => ({
-    title: "When crashes happen",
-    caption: `Crashes by hour of day, weekday vs weekend (${rangeLabel(f)}).`,
+    title: `When crashes happen${f.council ? ` in ${titleCase(f.council)}` : ""}`,
+    caption: `Crashes by hour of day, weekday vs weekend${f.council ? ` in ${titleCase(f.council)}` : ""} (${rangeLabel(f)}).`,
     render: "bar",
     answer: (rows) => {
       const weekday = top(rows, "weekday");
       const weekend = top(rows, "weekend");
       if (!weekday || !weekend) return "";
-      return `Weekday crashes peak at ${weekday.label}:00 (${fmt(weekday.weekday)} crashes); weekend crashes peak at ${weekend.label}:00 (${fmt(weekend.weekend)} crashes).`;
+      const place = f.council ? ` in ${titleCase(f.council)}` : "";
+      return `Weekday crashes${place} peak at ${weekday.label}:00 (${fmt(weekday.weekday)} crashes); weekend crashes${place} peak at ${weekend.label}:00 (${fmt(weekend.weekend)} crashes).`;
     },
     sql: `SELECT crash_hour AS label,
                  SUM(CASE WHEN day_of_week IN ('Saturday','Sunday') THEN 1 ELSE 0 END) AS weekend,
                  SUM(CASE WHEN day_of_week NOT IN ('Saturday','Sunday') THEN 1 ELSE 0 END) AS weekday
-          FROM ${T} ${yearClause(f)}
+          FROM ${T} ${joinConditions(f, [councilCondition(f.council)])}
           GROUP BY crash_hour ORDER BY crash_hour`,
   }),
 
