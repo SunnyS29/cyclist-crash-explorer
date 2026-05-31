@@ -23,6 +23,7 @@ export const cases = [
   { input: "crashes by year", builder: "yearlyTrend" },
   { input: "morning rush hour", builder: "rushHour" },
   { input: "evening commute", builder: "rushHour" },
+  { input: "safest time to go cycling on weekend", builder: "safestTime" },
   { input: "what time do crashes happen", builder: "byHour" },
   { input: "weekends", builder: "byHour" },
   { input: "when are crashes most likely", builder: "byHour" },

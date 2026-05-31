@@ -114,6 +114,37 @@ export const queries = {
           GROUP BY crash_hour ORDER BY crash_hour`,
   }),
 
+  safestTime: (f = {}) => {
+    const periods = {
+      weekend: {
+        label: "weekend",
+        condition: "day_of_week IN ('Saturday','Sunday')",
+      },
+      weekday: {
+        label: "weekday",
+        condition: "day_of_week NOT IN ('Saturday','Sunday')",
+      },
+      all: {
+        label: "all days",
+        condition: null,
+      },
+    };
+    const period = periods[f.period] || periods.all;
+    return {
+      title: `Safest cycling times (${titleCase(period.label)})`,
+      caption: `Hours with the fewest recorded cyclist crashes for ${period.label} (${rangeLabel(f)}). This uses raw crash counts, not cycling exposure.`,
+      render: "bar",
+      series: "hour",
+      answer: (rows) => {
+        const r = rows[0];
+        return r ? `${r.label}:00 had the fewest recorded cyclist crashes for ${period.label}: ${fmt(r.value)} in ${rangeLabel(f)}. Treat this as a crash-count signal, not a true risk rate.` : "";
+      },
+      sql: `SELECT crash_hour AS label, COUNT(*) AS value
+            FROM ${T} ${joinConditions(f, [period.condition])}
+            GROUP BY crash_hour ORDER BY value ASC, crash_hour ASC LIMIT 10`,
+    };
+  },
+
   rushHour: (f = {}) => {
     const periods = {
       morning: { label: "morning rush hour", condition: "crash_hour BETWEEN 7 AND 9" },
