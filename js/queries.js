@@ -98,16 +98,17 @@ export const queries = {
   }),
 
   dangerousYears: (f = {}) => ({
-    title: "Most dangerous years",
-    caption: `Years ranked by recorded cyclist crashes (${rangeLabel(f)}).${partialYearNote(f)}`,
-    render: "bar",
+    title: "Most dangerous year",
+    caption: `Recorded cyclist crashes in the highest-crash year (${rangeLabel(f)}).${partialYearNote(f)}`,
+    render: "stat",
+    unit: "crashes",
     answer: (rows) => {
       const r = rows[0];
       return r ? `${r.label} had the most recorded cyclist crashes: ${fmt(r.value)} in ${rangeLabel(f)}.${partialYearNote(f)}` : "";
     },
     sql: `SELECT CAST(year AS VARCHAR) AS label, COUNT(*) AS value
           FROM ${T} ${yearClause(f)}
-          GROUP BY year ORDER BY value DESC, year DESC`,
+          GROUP BY year ORDER BY value DESC, year DESC LIMIT 1`,
   }),
 
   byHour: (f = {}) => ({
