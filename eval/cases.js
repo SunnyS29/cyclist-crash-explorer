@@ -4,6 +4,7 @@ export const cases = [
   { input: "Brunswick", builder: "council", council: "MERRI-BEK" },
   { input: "crashes in Yarra", builder: "council", council: "YARRA" },
   { input: "Port Phillip", builder: "council", council: "PORT PHILLIP" },
+  { input: "Mornington Peninsula", builder: "council", council: "MORNINGTON PENINSULA" },
   { input: "st kilda", builder: "council", council: "PORT PHILLIP" },
   { input: "worst suburbs", builder: "worstCouncils" },
   { input: "which council has the most crashes", builder: "worstCouncils" },

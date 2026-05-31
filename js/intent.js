@@ -67,6 +67,12 @@ export function parseIntent(raw) {
   if (has(text, "fatal", "death", "killed", "died"))
     return { builder: "fatalCount", params: {}, year, matchedOn: "fatal" };
 
+  // Place names need to win before broad keyword checks; "Mornington Peninsula"
+  // contains "morning" but should be treated as a council search.
+  const council = findCouncil(text);
+  if (council)
+    return { builder: "council", params: { council }, year, matchedOn: "council" };
+
   if (has(text, "serious", "severity", "how serious", "injur"))
     return { builder: "bySeverity", params: {}, year, matchedOn: "severity" };
 
@@ -91,11 +97,6 @@ export function parseIntent(raw) {
   if (has(text, "worst", "most dangerous", "dangerous", "most crashes",
                 "top", "council", "suburb", "area"))
     return { builder: "worstCouncils", params: {}, year, matchedOn: "worst" };
-
-  // Bare place name, e.g. "Brunswick" or "Port Phillip".
-  const council = findCouncil(text);
-  if (council)
-    return { builder: "council", params: { council }, year, matchedOn: "council" };
 
   // A year range with no other signal -> show the trend over that range.
   if (year) return { builder: "yearlyTrend", params: {}, year, matchedOn: "year-only" };
