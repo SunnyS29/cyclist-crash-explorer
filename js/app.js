@@ -207,27 +207,48 @@ function wireUI() {
   document.getElementById("search-btn")
     .addEventListener("click", () => handleSearch(search.value));
 
-  const min = document.getElementById("year-min");
-  const max = document.getElementById("year-max");
-  const label = document.getElementById("year-label");
-  // Force sliders to canonical state on load (browsers restore stale values via bfcache).
-  min.value = state.yearMin;
-  max.value = state.yearMax;
-  label.textContent = `${state.yearMin}–${state.yearMax}`;
-  const onYear = () => {
-    let lo = +min.value, hi = +max.value;
-    if (lo > hi) [lo, hi] = [hi, lo];
-    state.yearMin = lo; state.yearMax = hi;
-    label.textContent = lo === hi ? `${lo}` : `${lo}–${hi}`;
-    rerunActiveWithGlobalYears();
-  };
-  min.addEventListener("input", onYear);
-  max.addEventListener("input", onYear);
+  wireRangeSlider();
 
   document.getElementById("toggle-data").addEventListener("click", () => {
     const w = document.getElementById("table-wrap");
     w.style.display = w.style.display === "none" ? "block" : "none";
   });
+}
+
+// Dual-handle year slider: two overlaid range inputs sharing one track.
+function wireRangeSlider() {
+  const min = document.getElementById("year-min");
+  const max = document.getElementById("year-max");
+  const fill = document.getElementById("range-fill");
+  const label = document.getElementById("year-label");
+  const lo = +min.min, hi = +min.max;
+  const pctOf = (v) => ((v - lo) / (hi - lo)) * 100;
+
+  // Reset to canonical state (browsers restore stale slider values via bfcache).
+  min.value = state.yearMin;
+  max.value = state.yearMax;
+
+  const paint = () => {
+    const a = +min.value, b = +max.value;
+    fill.style.left = pctOf(a) + "%";
+    fill.style.width = pctOf(b) - pctOf(a) + "%";
+    label.textContent = a === b ? `${a}` : `${a}–${b}`;
+    // Keep the handle nearest the right end on top so coincident thumbs stay grabbable.
+    min.style.zIndex = a >= (lo + hi) / 2 ? 4 : 3;
+  };
+
+  const onInput = (which) => {
+    let a = +min.value, b = +max.value;
+    if (a > b) which === "min" ? (b = a) : (a = b); // clamp so handles can't cross
+    min.value = a; max.value = b;
+    state.yearMin = a; state.yearMax = b;
+    paint();
+    rerunActiveWithGlobalYears();
+  };
+
+  min.addEventListener("input", () => onInput("min"));
+  max.addEventListener("input", () => onInput("max"));
+  paint();
 }
 
 (async function main() {

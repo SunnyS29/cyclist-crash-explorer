@@ -6,67 +6,177 @@
   <title>Melbourne Cyclist Crash Explorer</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
-    :root { --amber:#ffb000; --bg:#0d0d0f; --panel:#161618; --line:#262629; --text:#e8e6e3; --dim:#8a8a8a; }
-    * { box-sizing: border-box; }
-    body { margin:0; background:var(--bg); color:var(--text);
-           font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-    header { padding:24px 20px 16px; border-bottom:1px solid var(--line); }
-    h1 { margin:0; font-size:22px; color:var(--amber); }
-    .sub { color:var(--dim); font-size:13px; margin-top:4px; }
-    main { max-width:880px; margin:0 auto; padding:20px; }
+    :root {
+      --amber:#ffb000; --amber-soft:rgba(255,176,0,0.14);
+      --bg:#0a0a0c; --bg2:#101013; --panel:#161619; --panel2:#1c1c20;
+      --line:#2a2a30; --text:#ececec; --dim:#8d8d96;
+      --radius:14px; --shadow:0 8px 30px rgba(0,0,0,0.45);
+    }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body {
+      margin:0; color:var(--text);
+      font-family:"Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      background:
+        radial-gradient(1100px 500px at 50% -200px, rgba(255,176,0,0.10), transparent 70%),
+        linear-gradient(180deg, var(--bg2), var(--bg));
+      background-attachment:fixed; min-height:100vh; line-height:1.55;
+    }
 
-    .search { display:flex; gap:8px; margin-bottom:16px; }
-    .search input { flex:1; padding:12px 14px; font-size:15px; border-radius:8px;
-                    border:1px solid var(--line); background:var(--panel); color:var(--text); }
-    .search button, .cards button { cursor:pointer; }
-    .search button { padding:0 18px; border-radius:8px; border:none;
-                     background:var(--amber); color:#1a1300; font-weight:600; }
+    header { padding:38px 20px 26px; text-align:center; }
+    header h1 {
+      margin:0; font-size:30px; font-weight:800; letter-spacing:-0.02em;
+      background:linear-gradient(90deg,#fff,#ffd27a 60%,var(--amber));
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+    }
+    .badges { margin-top:12px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+    .badge {
+      font-size:12px; color:var(--dim); padding:5px 12px; border-radius:999px;
+      border:1px solid var(--line); background:rgba(255,255,255,0.02);
+    }
+    .badge b { color:var(--amber); font-weight:600; }
 
-    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
-             gap:8px; margin-bottom:16px; }
-    .cards button { padding:12px; border-radius:8px; border:1px solid var(--line);
-                    background:var(--panel); color:var(--text); text-align:left; font-size:13px; }
-    .cards button:hover { border-color:var(--amber); }
+    main { max-width:920px; margin:0 auto; padding:8px 20px 40px; }
 
-    .filter { display:flex; align-items:center; gap:12px; margin-bottom:16px;
-              padding:12px; background:var(--panel); border-radius:8px; font-size:13px; }
-    .filter input[type=range] { flex:1; accent-color:var(--amber); }
-    #year-label { color:var(--amber); font-weight:600; min-width:80px; text-align:right; }
+    .search { display:flex; gap:10px; margin-bottom:20px; }
+    .search input {
+      flex:1; padding:15px 18px; font-size:15px; border-radius:var(--radius);
+      border:1px solid var(--line); background:var(--panel); color:var(--text);
+      transition:border-color .15s, box-shadow .15s; outline:none;
+    }
+    .search input::placeholder { color:#6a6a72; }
+    .search input:focus { border-color:var(--amber); box-shadow:0 0 0 4px var(--amber-soft); }
+    .search button {
+      padding:0 24px; border-radius:var(--radius); border:none; cursor:pointer;
+      background:linear-gradient(180deg,#ffc233,var(--amber)); color:#241900;
+      font-weight:700; font-size:15px; transition:transform .12s, filter .12s;
+    }
+    .search button:hover { filter:brightness(1.08); transform:translateY(-1px); }
+    .search button:active { transform:translateY(0); }
 
-    .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; }
-    #result-title { margin:0 0 4px; font-size:16px; }
-    #result-answer { color:var(--text); font-size:14px; margin:0 0 6px; font-weight:600; }
-    #result-caption { color:var(--dim); font-size:13px; margin:0 0 14px; }
-    .chart-box { position:relative; height:340px; }
-    #stat { display:none; font-size:56px; font-weight:700; color:var(--amber); text-align:center; padding:40px 0; }
-    #status { color:var(--dim); font-size:13px; min-height:18px; margin-top:8px; }
+    .section-label { font-size:12px; text-transform:uppercase; letter-spacing:0.09em;
+                     color:var(--dim); margin:0 4px 10px; }
+
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+             gap:12px; margin-bottom:24px; }
+    .cards button {
+      position:relative; padding:16px 16px 16px 18px; border-radius:var(--radius);
+      border:1px solid var(--line); background:linear-gradient(180deg,var(--panel2),var(--panel));
+      color:var(--text); text-align:left; font-size:14px; cursor:pointer; line-height:1.4;
+      transition:transform .14s, border-color .14s, box-shadow .14s;
+    }
+    .cards button::before {
+      content:""; position:absolute; left:0; top:14px; bottom:14px; width:3px;
+      border-radius:3px; background:var(--amber); opacity:0; transition:opacity .14s;
+    }
+    .cards button:hover {
+      transform:translateY(-2px); border-color:rgba(255,176,0,0.4); box-shadow:var(--shadow);
+    }
+    .cards button:hover::before { opacity:1; }
+
+    .filter {
+      display:flex; align-items:center; gap:18px; margin-bottom:24px;
+      padding:16px 20px; background:var(--panel); border:1px solid var(--line);
+      border-radius:var(--radius);
+    }
+    .filter > span:first-child { font-size:13px; color:var(--dim); white-space:nowrap; }
+    #year-label {
+      color:var(--amber); font-weight:700; font-size:14px;
+      min-width:96px; text-align:right; font-variant-numeric:tabular-nums;
+    }
+
+    /* dual-handle range slider */
+    .range { position:relative; flex:1; height:30px; }
+    .range .track {
+      position:absolute; top:50%; transform:translateY(-50%); left:0; right:0;
+      height:6px; border-radius:999px; background:#2c2c33;
+    }
+    .range .fill {
+      position:absolute; top:50%; transform:translateY(-50%); height:6px; border-radius:999px;
+      background:linear-gradient(90deg,#ffc233,var(--amber));
+    }
+    .range input[type=range] {
+      position:absolute; top:0; left:0; width:100%; height:30px; margin:0;
+      -webkit-appearance:none; appearance:none; background:none; pointer-events:none;
+    }
+    .range input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance:none; appearance:none; pointer-events:auto; cursor:grab;
+      width:20px; height:20px; border-radius:50%; background:#fff;
+      border:3px solid var(--amber); box-shadow:0 2px 6px rgba(0,0,0,.5), 0 0 0 5px var(--amber-soft);
+      transition:box-shadow .12s;
+    }
+    .range input[type=range]::-webkit-slider-thumb:active { cursor:grabbing; box-shadow:0 2px 8px rgba(0,0,0,.6), 0 0 0 8px var(--amber-soft); }
+    .range input[type=range]::-moz-range-thumb {
+      pointer-events:auto; cursor:grab; width:20px; height:20px; border-radius:50%;
+      background:#fff; border:3px solid var(--amber); box-shadow:0 0 0 5px var(--amber-soft);
+    }
+    .range input[type=range]::-webkit-slider-runnable-track { background:none; }
+    .range input[type=range]::-moz-range-track { background:none; }
+
+    .panel {
+      background:linear-gradient(180deg,var(--panel2),var(--panel));
+      border:1px solid var(--line); border-radius:18px; padding:24px; box-shadow:var(--shadow);
+    }
+    #result-title { margin:0 0 8px; font-size:18px; font-weight:700; }
+    #result-answer { color:var(--text); font-size:15px; margin:0 0 6px; font-weight:600; }
+    #result-caption { color:var(--dim); font-size:13px; margin:0 0 18px; }
+    .chart-box { position:relative; height:360px; }
+    #stat { display:none; font-size:64px; font-weight:800; letter-spacing:-0.03em;
+            color:var(--amber); text-align:center; padding:48px 0;
+            text-shadow:0 0 40px rgba(255,176,0,0.35); }
+    #status { color:var(--dim); font-size:13px; min-height:18px; margin-top:10px; }
 
     #toggle-data { background:none; border:none; color:var(--amber); cursor:pointer;
-                   font-size:13px; padding:10px 0 0; }
-    #table-wrap { display:none; margin-top:10px; max-height:320px; overflow:auto; }
+                   font-size:13px; padding:12px 0 0; font-weight:600; }
+    #toggle-data:hover { text-decoration:underline; }
+    #table-wrap { display:none; margin-top:12px; max-height:340px; overflow:auto;
+                  border:1px solid var(--line); border-radius:10px; }
     table { width:100%; border-collapse:collapse; font-size:13px; }
-    th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); }
-    th { color:var(--dim); position:sticky; top:0; background:var(--panel); }
+    th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); }
+    tr:last-child td { border-bottom:none; }
+    th { color:var(--dim); position:sticky; top:0; background:var(--panel2);
+         text-transform:uppercase; font-size:11px; letter-spacing:0.05em; }
+    tbody tr:hover { background:rgba(255,255,255,0.03); }
 
-    #loading { text-align:center; padding:80px 20px; color:var(--dim); }
-    footer { text-align:center; color:var(--dim); font-size:12px; padding:24px; border-top:1px solid var(--line); }
+    #loading { text-align:center; padding:90px 20px; color:var(--dim); }
+    .spinner {
+      width:34px; height:34px; margin:0 auto 18px; border-radius:50%;
+      border:3px solid var(--line); border-top-color:var(--amber);
+      animation:spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    footer { text-align:center; color:var(--dim); font-size:12px; padding:28px 20px 40px; }
+    footer a { color:var(--amber); text-decoration:none; }
+    footer a:hover { text-decoration:underline; }
+
+    @media (max-width:560px) {
+      header h1 { font-size:24px; }
+      .filter { flex-wrap:wrap; gap:12px; }
+      .range { flex-basis:100%; order:3; }
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>Melbourne Cyclist Crash Explorer</h1>
-    <div class="sub">13 years · 16,056 crashes · VicRoads data 2012–2025</div>
+    <div class="badges">
+      <span class="badge"><b>13</b> years</span>
+      <span class="badge"><b>16,056</b> crashes</span>
+      <span class="badge">VicRoads <b>2012–2025</b></span>
+    </div>
   </header>
 
   <main>
-    <div id="loading">Loading data engine (~6 MB)… first load may take a moment.</div>
+    <div id="loading"><div class="spinner"></div>Loading data engine (~6 MB)… first load may take a moment.</div>
 
     <div id="app" style="display:none">
       <div class="search">
-        <input id="search" placeholder="Ask a question or type a council… e.g. &quot;worst suburbs&quot;, &quot;Yarra&quot;, &quot;fatal crashes 2023&quot;" />
+        <input id="search" placeholder='Ask a question or type a council… e.g. "worst suburbs", "Yarra", "fatal crashes 2023"' />
         <button id="search-btn">Search</button>
       </div>
 
+      <div class="section-label">Quick questions</div>
       <div class="cards">
         <button data-card="worstCouncils">Which council has the most crashes?</button>
         <button data-card="yearlyTrend">Is it getting safer over time?</button>
@@ -78,8 +188,11 @@
 
       <div class="filter">
         <span>Year range</span>
-        <input id="year-min" type="range" min="2012" max="2025" value="2012" />
-        <input id="year-max" type="range" min="2012" max="2025" value="2025" />
+        <div class="range">
+          <div class="track"><div class="fill" id="range-fill"></div></div>
+          <input id="year-min" type="range" min="2012" max="2025" step="1" value="2012" />
+          <input id="year-max" type="range" min="2012" max="2025" step="1" value="2025" />
+        </div>
         <span id="year-label">2012–2025</span>
       </div>
 
@@ -103,6 +216,6 @@
     Built with DuckDB WASM + Chart.js
   </footer>
 
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=2"></script>
 </body>
 </html>
