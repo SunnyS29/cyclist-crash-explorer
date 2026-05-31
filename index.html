@@ -121,9 +121,10 @@
     #result-answer { color:var(--text); font-size:15px; margin:0 0 6px; font-weight:600; }
     #result-caption { color:var(--dim); font-size:13px; margin:0 0 18px; }
     .chart-box { position:relative; height:360px; }
-    #stat { display:none; font-size:64px; font-weight:800; letter-spacing:-0.03em;
-            color:var(--amber); text-align:center; padding:48px 0;
-            text-shadow:0 0 40px rgba(255,176,0,0.35); }
+    .chart-box.stat-mode { height:auto; min-height:0; margin-top:8px; }
+    #stat { display:none; font-size:48px; line-height:1; font-weight:800; letter-spacing:-0.03em;
+            color:var(--amber); text-align:left; padding:6px 0 2px;
+            text-shadow:0 0 28px rgba(255,176,0,0.25); }
     #status { color:var(--dim); font-size:13px; min-height:18px; margin-top:10px; }
 
     #toggle-data { background:none; border:none; color:var(--amber); cursor:pointer;
@@ -216,6 +217,6 @@
     Built by Sunny Sangar with DuckDB WASM + Chart.js. Copyright 2026 Sunny Sangar. All rights reserved.
   </footer>
 
-  <script type="module" src="js/app.js?v=4"></script>
+  <script type="module" src="js/app.js?v=5"></script>
 </body>
 </html>

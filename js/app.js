@@ -63,12 +63,15 @@ function renderResult(spec, rows) {
 
   const canvas = document.getElementById("chart");
   const stat = document.getElementById("stat");
+  const chartBox = document.querySelector(".chart-box");
   if (spec.render === "stat") {
+    chartBox.classList.add("stat-mode");
     canvas.style.display = "none";
     stat.style.display = "block";
     stat.textContent = `${(rows[0]?.value ?? 0).toLocaleString()}`;
     return;
   }
+  chartBox.classList.remove("stat-mode");
   stat.style.display = "none";
   canvas.style.display = "block";
 
