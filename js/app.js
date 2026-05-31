@@ -29,7 +29,8 @@ async function initDuckDB() {
 
   conn = await db.connect();
   const url = new URL("data/crashes.parquet", location.href).href;
-  await db.registerFileURL("crashes.parquet", url, duckdb.DuckDBDataProtocol.HTTP, false);
+  const parquetBytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  await db.registerFileBuffer("crashes.parquet", parquetBytes);
   await conn.query(`CREATE VIEW crashes AS SELECT * FROM 'crashes.parquet'`);
 }
 
