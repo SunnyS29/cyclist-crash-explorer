@@ -7,9 +7,16 @@ export const cases = [
   { input: "Mornington Peninsula", builder: "council", council: "MORNINGTON PENINSULA" },
   { input: "st kilda", builder: "council", council: "PORT PHILLIP" },
   { input: "worst suburbs", builder: "worstCouncils" },
+  { input: "safest suburb", builder: "safestCouncils" },
+  { input: "which council has the fewest crashes", builder: "safestCouncils" },
   { input: "which council has the most crashes", builder: "worstCouncils" },
   { input: "most dangerous areas for cyclists", builder: "worstCouncils" },
   { input: "fatal crashes 2023", builder: "fatalCount", year: { min: 2023, max: 2023 } },
+  { input: "fatal crashes in Yarra 2023", builder: "filteredCount", council: "YARRA", year: { min: 2023, max: 2023 } },
+  { input: "serious injuries in Yarra", builder: "filteredCount", council: "YARRA" },
+  { input: "intersections in Port Phillip", builder: "byRoadGeometry" },
+  { input: "Sunday crashes in Melbourne", builder: "filteredCount", council: "MELBOURNE" },
+  { input: "8am crashes since 2020", builder: "filteredCount", year: { min: 2020, max: 2025 } },
   { input: "how many people were killed", builder: "fatalCount" },
   { input: "is it getting safer over time", builder: "yearlyTrend" },
   { input: "yearly trend", builder: "yearlyTrend" },
@@ -28,4 +35,6 @@ export const cases = [
   // Graceful-fail cases (no confident match -> suggest cards):
   { input: "asdfghjkl", expectNull: true },
   { input: "what is the meaning of life", expectNull: true },
+  { input: "crashes near me", expectUnsupported: true },
+  { input: "crashes per capita", expectUnsupported: true },
 ];

@@ -179,8 +179,12 @@ async function run(builderName, params = {}, yearOverride = null, remember = tru
 
 function handleSearch(text) {
   const intent = parseIntent(text);
+  if (intent?.unsupported) {
+    setStatus(intent.message);
+    return;
+  }
   if (!intent) {
-    setStatus(`Couldn't parse "${text}". Try a quick question below.`);
+    setStatus(`I couldn't answer "${text}" from the current dataset. Try a council, year, severity, time, weekday, or intersection question.`);
     return;
   }
   run(intent.builder, intent.params, intent.year);

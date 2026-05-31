@@ -14,6 +14,8 @@ for (const c of cases) {
   let ok;
   if (c.expectNull) {
     ok = got === null;
+  } else if (c.expectUnsupported) {
+    ok = got?.unsupported === true;
   } else {
     ok = got &&
       got.builder === c.builder &&

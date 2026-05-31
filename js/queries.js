@@ -16,10 +16,30 @@ function whereWith(f, condition) {
   return yc ? `${yc} AND ${condition}` : `WHERE ${condition}`;
 }
 
+function sqlString(s) {
+  return `'${String(s).replace(/'/g, "''")}'`;
+}
+
+function councilCondition(council) {
+  return council ? `council_area = ${sqlString(council)}` : null;
+}
+
+function joinConditions(f, conditions) {
+  return conditions.filter(Boolean).reduce((sql, condition) => whereWithSql(sql, condition), yearClause(f));
+}
+
+function whereWithSql(sql, condition) {
+  return sql ? `${sql} AND ${condition}` : `WHERE ${condition}`;
+}
+
 function rangeLabel(f) {
   const lo = f?.yearMin ?? 2012;
   const hi = f?.yearMax ?? 2025;
   return lo === hi ? `${lo}` : `${lo}–${hi}`;
+}
+
+function partialYearNote(f) {
+  return (f?.yearMax ?? 2025) >= 2025 ? " 2025 is partial, so treat that year with caution." : "";
 }
 
 function fmt(n) {
@@ -48,16 +68,29 @@ export const queries = {
           GROUP BY council_area ORDER BY value DESC LIMIT 10`,
   }),
 
+  safestCouncils: (f = {}) => ({
+    title: "Safest council areas for cyclists",
+    caption: `Council areas with the fewest recorded cyclist crashes (${rangeLabel(f)}). The dataset is council-level, not suburb-level.`,
+    render: "bar",
+    answer: (rows) => {
+      const r = rows[0];
+      return r ? `${titleCase(r.label)} had the fewest recorded cyclist crashes: ${fmt(r.value)} in ${rangeLabel(f)}. This is a council-area answer because the dataset has no suburb column.` : "";
+    },
+    sql: `SELECT council_area AS label, COUNT(*) AS value
+          FROM ${T} ${yearClause(f)}
+          GROUP BY council_area ORDER BY value ASC LIMIT 10`,
+  }),
+
   yearlyTrend: (f = {}) => ({
     title: "Crashes over time",
-    caption: `Total cyclist crashes per year (${rangeLabel(f)}).`,
+    caption: `Total cyclist crashes per year (${rangeLabel(f)}).${partialYearNote(f)}`,
     render: "line",
     answer: (rows) => {
       if (rows.length < 2) return rows[0] ? `${rows[0].label} had ${fmt(rows[0].value)} recorded crashes.` : "";
       const first = rows[0], last = rows[rows.length - 1];
       const delta = Number(last.value) - Number(first.value);
       const direction = delta > 0 ? "up" : "down";
-      return `Recorded crashes are ${direction} from ${fmt(first.value)} in ${first.label} to ${fmt(last.value)} in ${last.label}.`;
+      return `Recorded crashes are ${direction} from ${fmt(first.value)} in ${first.label} to ${fmt(last.value)} in ${last.label}.${partialYearNote(f)}`;
     },
     sql: `SELECT CAST(year AS VARCHAR) AS label, COUNT(*) AS value
           FROM ${T} ${yearClause(f)}
@@ -138,17 +171,43 @@ export const queries = {
   }),
 
   byRoadGeometry: (f = {}) => ({
-    title: "Most dangerous road types",
-    caption: `Crashes by road geometry, e.g. intersections (${rangeLabel(f)}).`,
+    title: "Most common intersection crash types",
+    caption: `Crash counts by intersection geometry${f.council ? ` in ${titleCase(f.council)}` : ""} (${rangeLabel(f)}). Excludes the broad "not at intersection" bucket because it mostly reflects exposure, not a specific road design.`,
     render: "bar",
     answer: (rows) => {
       const r = rows[0];
-      return r ? `${titleCase(r.label)} is the most common recorded road geometry, with ${fmt(r.value)} cyclist crashes.` : "";
+      const place = f.council ? ` in ${titleCase(f.council)}` : "";
+      return r ? `${titleCase(r.label)} is the most common recorded intersection geometry${place}, with ${fmt(r.value)} cyclist crashes.` : "";
     },
     sql: `SELECT road_geometry AS label, COUNT(*) AS value
-          FROM ${T} ${yearClause(f)}
+          FROM ${T} ${joinConditions(f, [
+            councilCondition(f.council),
+            "road_geometry LIKE '%intersection%'",
+            "road_geometry <> 'Not at intersection'",
+          ])}
           GROUP BY road_geometry ORDER BY value DESC LIMIT 10`,
   }),
+
+  filteredCount: (f = {}) => {
+    const conditions = [councilCondition(f.council)];
+    if (f.severity) conditions.push(`severity = ${sqlString(f.severity)}`);
+    if (f.notSeverity) conditions.push(`severity <> ${sqlString(f.notSeverity)}`);
+    if (f.day) conditions.push(`day_of_week = ${sqlString(f.day)}`);
+    if (f.hour != null) conditions.push(`crash_hour = ${Number(f.hour)}`);
+    if (f.hourMin != null && f.hourMax != null)
+      conditions.push(`crash_hour BETWEEN ${Number(f.hourMin)} AND ${Number(f.hourMax)}`);
+
+    const place = f.council ? ` in ${titleCase(f.council)}` : "";
+    const label = f.label || "matching cyclist crashes";
+    return {
+      title: titleCase(`${label}${place}`),
+      caption: `Recorded ${label}${place} (${rangeLabel(f)}).`,
+      render: "stat",
+      unit: label,
+      answer: (rows) => `${fmt(rows[0]?.value)} recorded ${label}${place} in ${rangeLabel(f)}.`,
+      sql: `SELECT COUNT(*) AS value FROM ${T} ${joinConditions(f, conditions)}`,
+    };
+  },
 
   fatalCount: (f = {}) => {
     const yc = yearClause(f);
