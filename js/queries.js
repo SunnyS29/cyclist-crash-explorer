@@ -1,328 +1,196 @@
-// Pure SQL builders. No DOM/DuckDB deps so they run in Node (eval) and browser.
-// Each builder returns: { title, caption, render, sql }
-//   render: 'bar' | 'line' | 'stat' | 'table'
-
-const T = "crashes"; // registered view name over the parquet file
-
-function yearClause({ yearMin, yearMax } = {}) {
-  const parts = [];
-  if (yearMin != null) parts.push(`year >= ${yearMin}`);
-  if (yearMax != null) parts.push(`year <= ${yearMax}`);
-  return parts.length ? `WHERE ${parts.join(" AND ")}` : "";
+// Pure SQL builders shared by the browser and regression tests.
+import { COUNCILS } from "./intent.js";
+const T = "crashes";
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const sqlString = (s) => `'${String(s).replace(/'/g, "''")}'`;
+const fmt = (n) => Number(n || 0).toLocaleString();
+const pct = (n) => `${Number(n || 0).toFixed(1)}%`;
+export const titleCase = (s) => String(s).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+const top = (rows, key = "value") => [...rows].sort((a, b) => Number(b[key]) - Number(a[key]))[0];
+function integer(value, min, max) {
+  if (!Number.isInteger(value) || value < min || value > max) throw new Error("Invalid numeric filter");
+  return value;
 }
-
-function whereWith(f, condition) {
-  const yc = yearClause(f);
-  return yc ? `${yc} AND ${condition}` : `WHERE ${condition}`;
+function range(f) {
+  const min = integer(f.yearMin ?? 2012, 2012, 2025), max = integer(f.yearMax ?? 2025, 2012, 2025);
+  if (min > max) throw new Error("Invalid year range");
+  return { min, max };
 }
-
-function sqlString(s) {
-  return `'${String(s).replace(/'/g, "''")}'`;
+function rangeLabel(f) { const { min, max } = range(f); return min === max ? `${min}` : `${min}–${max}`; }
+const partialNote = (f) => range(f).max === 2025 ? " 2025 covers January–July only." : "";
+function filterLabels(f) {
+  return [f.council && `Council: ${titleCase(f.council)}`,
+    f.severity && `Severity: ${f.severity}`, f.notSeverity && `Excluding: ${f.notSeverity}`,
+    f.day, f.dayPeriod, f.hour != null && `${f.hour}:00–${f.hour}:59`,
+    f.hourMin != null && `${f.hourMin}:00–${f.hourMax}:59`,
+    f.period && `${f.period} hours`].filter(Boolean);
 }
-
-function councilCondition(council) {
-  return council ? `council_area = ${sqlString(council)}` : null;
+function where(f = {}, extra = []) {
+  const { min, max } = range(f);
+  const conditions = [`year BETWEEN ${min} AND ${max}`];
+  if (f.council) conditions.push(`council_area = ${sqlString(f.council)}`);
+  if (f.severity) conditions.push(`severity = ${sqlString(f.severity)}`);
+  if (f.notSeverity) conditions.push(`severity <> ${sqlString(f.notSeverity)}`);
+  if (f.day) conditions.push(`day_of_week = ${sqlString(f.day)}`);
+  if (f.dayPeriod === "weekend") conditions.push("day_of_week IN ('Saturday','Sunday')");
+  if (f.dayPeriod === "weekday") conditions.push("day_of_week NOT IN ('Saturday','Sunday')");
+  if (f.hour != null) conditions.push(`crash_hour = ${integer(f.hour, 0, 23)}`);
+  if (f.hourMin != null || f.hourMax != null) {
+    const lo = integer(f.hourMin, 0, 23), hi = integer(f.hourMax, 0, 23);
+    if (lo > hi) throw new Error("Invalid hour range");
+    conditions.push(`crash_hour BETWEEN ${lo} AND ${hi}`);
+  }
+  if (f.period === "morning") conditions.push("crash_hour BETWEEN 7 AND 9");
+  if (f.period === "evening") conditions.push("crash_hour BETWEEN 16 AND 18");
+  if (f.period === "commute") conditions.push("crash_hour IN (7,8,9,16,17,18)");
+  return `WHERE ${[...conditions, ...extra].join(" AND ")}`;
 }
-
-function joinConditions(f, conditions) {
-  return conditions.filter(Boolean).reduce((sql, condition) => whereWithSql(sql, condition), yearClause(f));
+const councilDimension = `SELECT unnest([${COUNCILS.map(sqlString).join(",")}]) AS council_area`;
+function councilTotals(f) {
+  return `WITH councils AS (${councilDimension}), filtered AS (SELECT * FROM ${T} ${where(f)}),
+    totals AS (SELECT c.council_area, COUNT(f.crash_id) AS value FROM councils c
+      LEFT JOIN filtered f USING (council_area) GROUP BY c.council_area)`;
 }
-
-function whereWithSql(sql, condition) {
-  return sql ? `${sql} AND ${condition}` : `WHERE ${condition}`;
+function yearlyCounts(f) {
+  const { min, max } = range(f);
+  return `WITH years AS (SELECT range AS year FROM range(${min}, ${max + 1})),
+    counts AS (SELECT year, COUNT(*) AS value FROM ${T} ${where(f)} GROUP BY year)
+    SELECT CAST(y.year AS VARCHAR) AS label, COALESCE(c.value, 0) AS value
+    FROM years y LEFT JOIN counts c USING (year)`;
 }
-
-function rangeLabel(f) {
-  const lo = f?.yearMin ?? 2012;
-  const hi = f?.yearMax ?? 2025;
-  return lo === hi ? `${lo}` : `${lo}–${hi}`;
+function hourlyCounts(f) {
+  // Build the hour dimension using the same time constraints; retain zero hours.
+  const hours = Array.from({ length: 24 }, (_, h) => h).filter((h) =>
+    (f.hour == null || h === f.hour) && (f.hourMin == null || h >= f.hourMin && h <= f.hourMax) &&
+    (!f.period || (f.period === "morning" ? h >= 7 && h <= 9 :
+      f.period === "evening" ? h >= 16 && h <= 18 : [7,8,9,16,17,18].includes(h))));
+  return `WITH hours AS (SELECT unnest([${hours.join(",")}]) AS crash_hour),
+    counts AS (SELECT crash_hour, COUNT(*) AS value FROM ${T} ${where(f)} GROUP BY crash_hour)
+    SELECT h.crash_hour AS label, COALESCE(c.value, 0) AS value
+    FROM hours h LEFT JOIN counts c USING (crash_hour)`;
 }
-
-function partialYearNote(f) {
-  return (f?.yearMax ?? 2025) >= 2025 ? " 2025 is partial, so treat that year with caution." : "";
-}
-
-function fmt(n) {
-  return Number(n || 0).toLocaleString();
-}
-
-function pct(n) {
-  return `${Number(n || 0).toFixed(1)}%`;
-}
-
-function top(rows, key = "value") {
-  return [...rows].sort((a, b) => Number(b[key] || 0) - Number(a[key] || 0))[0];
-}
-
-export const queries = {
-  worstCouncils: (f = {}) => ({
-    title: "Worst council areas for cyclists",
-    caption: `Council areas with the most cyclist crashes (${rangeLabel(f)}).`,
-    render: "bar",
-    answer: (rows) => {
-      const r = rows[0];
-      return r ? `${titleCase(r.label)} had the most recorded cyclist crashes: ${fmt(r.value)} in ${rangeLabel(f)}.` : "";
-    },
-    sql: `SELECT council_area AS label, COUNT(*) AS value
-          FROM ${T} ${yearClause(f)}
-          GROUP BY council_area ORDER BY value DESC LIMIT 10`,
+const noData = "No recorded crashes match these filters.";
+const builders = {
+  worstCouncils: (f) => ({
+    title: "Councils with the most recorded crashes", render: "bar",
+    caption: "Raw counts by council area; these are not cycling risk rates.",
+    sql: `${councilTotals(f)} SELECT council_area AS label, value FROM totals ORDER BY value DESC, label LIMIT 10`,
+    answer: (rows) => rows[0] ? `${titleCase(rows[0].label)} had ${fmt(rows[0].value)} recorded crashes, the highest count (ties may occur).` : noData,
   }),
-
-  safestCouncils: (f = {}) => ({
-    title: "Safest council areas for cyclists",
-    caption: `Council areas with the fewest recorded cyclist crashes (${rangeLabel(f)}). The dataset is council-level, not suburb-level.`,
-    render: "bar",
-    answer: (rows) => {
-      const r = rows[0];
-      return r ? `${titleCase(r.label)} had the fewest recorded cyclist crashes: ${fmt(r.value)} in ${rangeLabel(f)}. This is a council-area answer because the dataset has no suburb column.` : "";
-    },
-    sql: `SELECT council_area AS label, COUNT(*) AS value
-          FROM ${T} ${yearClause(f)}
-          GROUP BY council_area ORDER BY value ASC LIMIT 10`,
+  safestCouncils: (f) => ({
+    title: "Councils with the fewest recorded crashes", render: "bar",
+    caption: "Includes councils with zero records. Council-level counts are not suburb-level risk rates.",
+    sql: `${councilTotals(f)} SELECT council_area AS label, value FROM totals ORDER BY value, label LIMIT 10`,
+    answer: (rows) => rows[0] ? `${titleCase(rows[0].label)} had ${fmt(rows[0].value)} recorded crashes, the lowest count (ties may occur). Zero records do not establish that no crashes occurred.` : noData,
   }),
-
-  yearlyTrend: (f = {}) => ({
-    title: "Crashes over time",
-    caption: `Total cyclist crashes per year (${rangeLabel(f)}).${partialYearNote(f)}`,
-    render: "line",
+  yearlyTrend: (f) => ({
+    title: "Recorded crashes over time", render: "line",
+    caption: `Crashes per year.${partialNote(f)}`,
+    sql: `${yearlyCounts(f)} ORDER BY label`,
     answer: (rows) => {
-      if (rows.length < 2) return rows[0] ? `${rows[0].label} had ${fmt(rows[0].value)} recorded crashes.` : "";
-      const first = rows[0], last = rows[rows.length - 1];
+      // Never compare a partial year against a full year to infer a trend.
+      const complete = rows.filter((r) => Number(r.label) < 2025);
+      if (complete.length < 2) return rows.map((r) => `${r.label}: ${fmt(r.value)} recorded crashes`).join("; ") + `.${partialNote(f)}`;
+      const first = complete[0], last = complete[complete.length - 1];
       const delta = Number(last.value) - Number(first.value);
-      const direction = delta > 0 ? "up" : "down";
-      return `Recorded crashes are ${direction} from ${fmt(first.value)} in ${first.label} to ${fmt(last.value)} in ${last.label}.${partialYearNote(f)}`;
+      const direction = delta > 0 ? "increased" : delta < 0 ? "decreased" : "were unchanged";
+      return `Across complete years, recorded crashes ${direction}: ${fmt(first.value)} in ${first.label} and ${fmt(last.value)} in ${last.label}.${partialNote(f)}`;
     },
-    sql: `SELECT CAST(year AS VARCHAR) AS label, COUNT(*) AS value
-          FROM ${T} ${yearClause(f)}
-          GROUP BY year ORDER BY year`,
   }),
-
-  dangerousYears: (f = {}) => ({
-    title: "Most dangerous year",
-    caption: `Recorded cyclist crashes in the highest-crash year (${rangeLabel(f)}).${partialYearNote(f)}`,
-    render: "stat",
-    unit: "crashes",
-    answer: (rows) => {
-      const r = rows[0];
-      return r ? `${r.label} had the most recorded cyclist crashes: ${fmt(r.value)} in ${rangeLabel(f)}.${partialYearNote(f)}` : "";
-    },
-    sql: `SELECT CAST(year AS VARCHAR) AS label, COUNT(*) AS value
-          FROM ${T} ${yearClause(f)}
-          GROUP BY year ORDER BY value DESC, year DESC LIMIT 1`,
+  dangerousYears: (f) => ({
+    title: "Year with the most recorded crashes", render: "stat", unit: "crashes",
+    caption: `Highest annual count.${partialNote(f)}`,
+    sql: `${yearlyCounts(f)} ORDER BY value DESC, label DESC LIMIT 1`,
+    answer: (rows) => rows[0] ? `${rows[0].label} had the highest count: ${fmt(rows[0].value)} recorded crashes.${partialNote(f)}` : noData,
   }),
-
-  byHour: (f = {}) => ({
-    title: `When crashes happen${f.council ? ` in ${titleCase(f.council)}` : ""}`,
-    caption: `Crashes by hour of day, weekday vs weekend${f.council ? ` in ${titleCase(f.council)}` : ""} (${rangeLabel(f)}).`,
-    render: "bar",
-    answer: (rows) => {
-      const weekday = top(rows, "weekday");
-      const weekend = top(rows, "weekend");
-      if (!weekday || !weekend) return "";
-      const place = f.council ? ` in ${titleCase(f.council)}` : "";
-      return `Weekday crashes${place} peak at ${weekday.label}:00 (${fmt(weekday.weekday)} crashes); weekend crashes${place} peak at ${weekend.label}:00 (${fmt(weekend.weekend)} crashes).`;
-    },
+  byHour: (f) => ({
+    title: "When recorded crashes happen", render: "bar",
+    caption: "Crashes by hour, split into weekdays and weekends.",
     sql: `SELECT crash_hour AS label,
-                 SUM(CASE WHEN day_of_week IN ('Saturday','Sunday') THEN 1 ELSE 0 END) AS weekend,
-                 SUM(CASE WHEN day_of_week NOT IN ('Saturday','Sunday') THEN 1 ELSE 0 END) AS weekday
-          FROM ${T} ${joinConditions(f, [councilCondition(f.council)])}
-          GROUP BY crash_hour ORDER BY crash_hour`,
+      SUM(CASE WHEN day_of_week IN ('Saturday','Sunday') THEN 1 ELSE 0 END) AS weekend,
+      SUM(CASE WHEN day_of_week NOT IN ('Saturday','Sunday') THEN 1 ELSE 0 END) AS weekday
+      FROM ${T} ${where(f)} GROUP BY crash_hour ORDER BY crash_hour`,
+    answer: (rows) => ["weekday", "weekend"].map((key) => {
+      const peak = top(rows, key);
+      return peak && Number(peak[key]) > 0 ? `${titleCase(key)} crashes peak at ${peak.label}:00 (${fmt(peak[key])} crashes).` : `No ${key} crashes match these filters.`;
+    }).join(" "),
   }),
-
-  safestTime: (f = {}) => {
-    const periods = {
-      weekend: {
-        label: "weekend",
-        condition: "day_of_week IN ('Saturday','Sunday')",
-      },
-      weekday: {
-        label: "weekday",
-        condition: "day_of_week NOT IN ('Saturday','Sunday')",
-      },
-      all: {
-        label: "all days",
-        condition: null,
-      },
-    };
-    const period = periods[f.period] || periods.all;
+  safestTime: (f) => ({
+    title: "Hours with the fewest recorded crashes", render: "bar", series: "hour",
+    caption: "Includes hours with zero records. Raw counts do not measure cycling risk.",
+    sql: `${hourlyCounts(f)} ORDER BY value, label LIMIT 10`,
+    answer: (rows) => rows[0] ? `${rows[0].label}:00 had ${fmt(rows[0].value)} recorded crashes, the lowest hourly count (ties may occur).` : noData,
+  }),
+  rushHour: (f) => {
+    const filter = { ...f, period: f.period || "commute" };
     return {
-      title: `Safest cycling times (${titleCase(period.label)})`,
-      caption: `Hours with the fewest recorded cyclist crashes for ${period.label} (${rangeLabel(f)}). This uses raw crash counts, not cycling exposure.`,
-      render: "bar",
-      series: "hour",
+      title: `${titleCase(filter.period)} hours`, render: "bar", series: "hour",
+      caption: "Morning: 07:00–09:59; evening: 16:00–18:59. Includes weekends unless filtered.",
+      sql: `${hourlyCounts(filter)} ORDER BY label`,
       answer: (rows) => {
-        const r = rows[0];
-        return r ? `${r.label}:00 had the fewest recorded cyclist crashes for ${period.label}: ${fmt(r.value)} in ${rangeLabel(f)}. Treat this as a crash-count signal, not a true risk rate.` : "";
+        const peak = top(rows), total = rows.reduce((n, r) => n + Number(r.value), 0);
+        return total ? `${fmt(total)} recorded crashes during these hours; the highest hourly count was ${fmt(peak.value)} at ${peak.label}:00.` : noData;
       },
-      sql: `SELECT crash_hour AS label, COUNT(*) AS value
-            FROM ${T} ${joinConditions(f, [period.condition])}
-            GROUP BY crash_hour ORDER BY value ASC, crash_hour ASC LIMIT 10`,
     };
   },
-
-  rushHour: (f = {}) => {
-    const periods = {
-      morning: { label: "morning rush hour", condition: "crash_hour BETWEEN 7 AND 9" },
-      evening: { label: "evening rush hour", condition: "crash_hour BETWEEN 16 AND 18" },
-      commute: { label: "commute hours", condition: "crash_hour IN (7, 8, 9, 16, 17, 18)" },
-    };
-    const period = periods[f.period] || periods.commute;
-    return {
-      title: `${titleCase(period.label)} crashes`,
-      caption: `Cyclist crashes during ${period.label} (${rangeLabel(f)}).`,
-      render: "bar",
-      series: "hour",
-      answer: (rows) => {
-        const total = rows.reduce((sum, r) => sum + Number(r.value || 0), 0);
-        const peak = top(rows);
-        return peak ? `${fmt(total)} crashes happened during ${period.label}; the busiest hour was ${peak.label}:00 with ${fmt(peak.value)} crashes.` : "";
-      },
-      sql: `SELECT crash_hour AS label, COUNT(*) AS value
-            FROM ${T} ${whereWith(f, period.condition)}
-            GROUP BY crash_hour ORDER BY crash_hour`,
-    };
-  },
-
-  bySeverity: (f = {}) => ({
-    title: "How serious are crashes",
-    caption: `Crashes by injury severity and share of total crashes (${rangeLabel(f)}).`,
-    render: "bar",
-    answer: (rows) => {
-      const serious = rows.find((r) => r.label === "Serious Injury");
-      const fatal = rows.find((r) => r.label === "Fatal");
-      const share = Number(serious?.pct || 0) + Number(fatal?.pct || 0);
-      return `Serious or fatal crashes make up ${pct(share)} of recorded cyclist crashes in ${rangeLabel(f)}.`;
-    },
-    sql: `SELECT severity AS label,
-                 COUNT(*) AS value,
-                 100.0 * COUNT(*) / SUM(COUNT(*)) OVER () AS pct
-          FROM ${T} ${yearClause(f)}
-          GROUP BY severity ORDER BY value DESC`,
+  bySeverity: (f) => ({
+    title: "Crash severity", render: "bar",
+    caption: "Crash severity and percentage of matching crashes; these are not casualty counts.",
+    sql: `SELECT severity AS label, COUNT(*) AS value, 100.0 * COUNT(*) / SUM(COUNT(*)) OVER () AS pct
+      FROM ${T} ${where(f)} GROUP BY severity ORDER BY value DESC`,
+    answer: (rows) => rows.length ? `Serious or fatal crashes make up ${pct(rows.filter((r) => ["Serious Injury", "Fatal"].includes(r.label)).reduce((n, r) => n + Number(r.pct), 0))} of matching recorded crashes.` : noData,
   }),
-
-  byDayOfWeek: (f = {}) => ({
-    title: "Crashes by day of week",
-    caption: `Which days see the most cyclist crashes (${rangeLabel(f)}).`,
-    render: "bar",
-    answer: (rows) => {
-      const r = top(rows);
-      return r ? `${r.label} has the most recorded cyclist crashes: ${fmt(r.value)} in ${rangeLabel(f)}.` : "";
-    },
-    sql: `SELECT day_of_week AS label, COUNT(*) AS value
-          FROM ${T} ${yearClause(f)}
-          GROUP BY day_of_week
-          ORDER BY array_position(
-            ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
-            day_of_week)`,
+  byDayOfWeek: (f) => ({
+    title: "Crashes by day of week", render: "bar", caption: "Recorded crashes by weekday.",
+    sql: `SELECT day_of_week AS label, COUNT(*) AS value FROM ${T} ${where(f)} GROUP BY day_of_week
+      ORDER BY array_position([${DAYS.map(sqlString).join(",")}], day_of_week)`,
+    answer: (rows) => { const peak = top(rows); return peak ? `${peak.label} had the highest count: ${fmt(peak.value)} recorded crashes.` : noData; },
   }),
-
-  byRoadGeometry: (f = {}) => ({
-    title: "Where intersection crashes happen",
-    caption: `Cyclist crashes by intersection type${f.council ? ` in ${titleCase(f.council)}` : ""} (${rangeLabel(f)}). Excludes the broad "not at intersection" bucket because it mostly reflects how many non-intersection roads there are.`,
-    render: "bar",
-    answer: (rows) => {
-      const r = rows[0];
-      const place = f.council ? ` in ${titleCase(f.council)}` : "";
-      return r ? `${titleCase(r.label)} had the most recorded cyclist crashes${place}, with ${fmt(r.value)} crashes.` : "";
-    },
-    sql: `SELECT road_geometry AS label, COUNT(*) AS value
-          FROM ${T} ${joinConditions(f, [
-            councilCondition(f.council),
-            "road_geometry LIKE '%intersection%'",
-            "road_geometry <> 'Not at intersection'",
-          ])}
-          GROUP BY road_geometry ORDER BY value DESC LIMIT 10`,
+  byRoadGeometry: (f) => ({
+    title: "Recorded crashes by intersection type", render: "bar",
+    caption: 'Intersection geometry only; excludes "Not at intersection". These are counts, not risk rates.',
+    sql: `SELECT road_geometry AS label, COUNT(*) AS value FROM ${T}
+      ${where(f, ["road_geometry LIKE '%intersection%'", "road_geometry <> 'Not at intersection'"])}
+      GROUP BY road_geometry ORDER BY value DESC, label`,
+    answer: (rows) => rows[0] ? `${titleCase(rows[0].label)} had the highest count: ${fmt(rows[0].value)} recorded crashes.` : noData,
   }),
-
-  filteredCount: (f = {}) => {
-    const conditions = [councilCondition(f.council)];
-    if (f.severity) conditions.push(`severity = ${sqlString(f.severity)}`);
-    if (f.notSeverity) conditions.push(`severity <> ${sqlString(f.notSeverity)}`);
-    if (f.day) conditions.push(`day_of_week = ${sqlString(f.day)}`);
-    if (f.hour != null) conditions.push(`crash_hour = ${Number(f.hour)}`);
-    if (f.hourMin != null && f.hourMax != null)
-      conditions.push(`crash_hour BETWEEN ${Number(f.hourMin)} AND ${Number(f.hourMax)}`);
-
-    const place = f.council ? ` in ${titleCase(f.council)}` : "";
-    const label = f.label || "matching cyclist crashes";
+  filteredCount: (f) => ({
+    title: "Matching recorded crashes", render: "stat", unit: "crashes",
+    caption: "Distinct crashes matching all selected filters.",
+    sql: `SELECT COUNT(*) AS value FROM ${T} ${where(f)}`,
+    answer: (rows) => `${fmt(rows[0]?.value)} recorded crashes match these filters.`,
+  }),
+  fatalCount: (f) => ({
+    title: "Fatal crashes", render: "stat", unit: "fatal crashes",
+    caption: "Distinct crashes classified as fatal; this is not a count of people killed.",
+    sql: `SELECT COUNT(*) AS value FROM ${T} ${where({ ...f, severity: "Fatal" })}`,
+    answer: (rows) => `${fmt(rows[0]?.value)} recorded crashes were classified as fatal.`,
+  }),
+  council: ({ council, ...f }) => {
+    const { min, max } = range(f), cond = `council_area = ${sqlString(council)}`;
     return {
-      title: titleCase(`${label}${place}`),
-      caption: `Recorded ${label}${place} (${rangeLabel(f)}).`,
-      render: "stat",
-      unit: label,
-      answer: (rows) => `${fmt(rows[0]?.value)} recorded ${label}${place} in ${rangeLabel(f)}.`,
-      sql: `SELECT COUNT(*) AS value FROM ${T} ${joinConditions(f, conditions)}`,
-    };
-  },
-
-  fatalCount: (f = {}) => {
-    const yc = yearClause(f);
-    const sev = "severity = 'Fatal'";
-    return {
-      title: "Fatal crashes",
-      caption: `Cyclist crashes that were fatal (${rangeLabel(f)}).`,
-      render: "stat",
-      unit: "fatal crashes",
-      answer: (rows) => `${fmt(rows[0]?.value)} recorded cyclist crashes were fatal in ${rangeLabel(f)}.`,
-      sql: `SELECT COUNT(*) AS value FROM ${T}
-            ${yc ? yc + " AND " + sev : "WHERE " + sev}`,
-    };
-  },
-
-  // Filter to a single council area (matched name passed in `council`).
-  council: ({ council, ...f } = {}) => {
-    const yc = yearClause(f);
-    const safe = String(council).replace(/'/g, "''");
-    const cond = `council_area = '${safe}'`;
-    return {
-      title: `${titleCase(council)} vs Melbourne`,
-      caption: `Cyclist crashes in ${titleCase(council)} compared with the average council area (${rangeLabel(f)}).`,
-      render: "line",
-      answer: (rows) => {
-        const r = rows[0];
-        if (!r) return "";
-        const diff = Number(r.total) - Number(r.melbourne_avg_total);
-        const relation = diff >= 0 ? "above" : "below";
-        return `${titleCase(council)} had ${fmt(r.total)} crashes in ${rangeLabel(f)}, ranking ${r.rank} of ${r.councils} councils and sitting ${relation} the Melbourne council average of ${fmt(Math.round(r.melbourne_avg_total))}.`;
-      },
-      sql: `WITH filtered AS (
-              SELECT * FROM ${T} ${yc}
-            ),
-            yearly AS (
-              SELECT year,
-                     SUM(CASE WHEN ${cond} THEN 1 ELSE 0 END) AS value,
-                     COUNT(*) AS total_crashes,
-                     COUNT(DISTINCT council_area) AS councils
-              FROM filtered GROUP BY year
-            ),
-            totals AS (
-              SELECT council_area, COUNT(*) AS total
-              FROM filtered GROUP BY council_area
-            ),
-            ranked AS (
-              SELECT council_area,
-                     total,
-                     RANK() OVER (ORDER BY total DESC) AS rank,
-                     COUNT(*) OVER () AS councils,
-                     AVG(total) OVER () AS melbourne_avg_total
-              FROM totals
-            )
-            SELECT CAST(yearly.year AS VARCHAR) AS label,
-                   yearly.value,
-                   ROUND(yearly.total_crashes * 1.0 / yearly.councils, 1) AS melbourne_avg,
-                   ranked.total,
-                   ranked.rank,
-                   ranked.councils,
-                   ranked.melbourne_avg_total
-            FROM yearly CROSS JOIN ranked
-            WHERE ranked.${cond}
-            ORDER BY yearly.year`,
+      title: `${titleCase(council)} vs average council`, render: "line",
+      caption: `Recorded crashes compared with the same ${COUNCILS.length} councils in each year.${partialNote(f)}`,
+      sql: `WITH councils AS (${councilDimension}),
+        years AS (SELECT range AS year FROM range(${min}, ${max + 1})),
+        filtered AS (SELECT * FROM ${T} ${where(f)}),
+        counts AS (SELECT council_area, year, COUNT(*) AS value FROM filtered GROUP BY council_area, year),
+        annual AS (SELECT c.council_area, y.year, COALESCE(n.value, 0) AS value
+          FROM councils c CROSS JOIN years y LEFT JOIN counts n USING (council_area, year)),
+        totals AS (SELECT council_area, SUM(value) AS total FROM annual GROUP BY council_area),
+        ranked AS (SELECT *, RANK() OVER (ORDER BY total DESC) AS rank,
+          COUNT(*) OVER () AS councils, AVG(total) OVER () AS melbourne_avg_total FROM totals),
+        comparisons AS (SELECT *, AVG(value) OVER (PARTITION BY year) AS melbourne_avg FROM annual)
+        SELECT CAST(a.year AS VARCHAR) AS label, a.value, ROUND(a.melbourne_avg, 1) AS melbourne_avg,
+          r.total, r.rank, r.councils, r.melbourne_avg_total
+        FROM comparisons a JOIN ranked r USING (council_area) WHERE a.${cond} ORDER BY a.year`,
+      answer: (rows) => { const r = rows[0]; return r ? `${titleCase(council)} had ${fmt(r.total)} recorded crashes, ranking ${r.rank} of ${r.councils} councils by count. The council average was ${fmt(Math.round(r.melbourne_avg_total))}.` : noData; },
     };
   },
 };
-
-export function titleCase(s) {
-  return String(s)
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
+// Always display the complete effective scope beside the answer.
+export const queries = Object.fromEntries(Object.entries(builders).map(([name, build]) => [name, (f = {}) => {
+  const spec = build(f);
+  const scope = [`Years: ${rangeLabel(f)}`, ...filterLabels(f)].join(" · ");
+  return { ...spec, caption: `${scope}. ${spec.caption}` };
+}]));

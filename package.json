@@ -1,0 +1,7 @@
+{
+  "name": "cyclist-crash-explorer",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node eval/run.mjs" },
+  "engines": { "node": ">=20" }
+}

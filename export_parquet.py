@@ -26,7 +26,7 @@ PARQUET_OUT = os.path.join(HERE, "data", "crashes.parquet")
 
 # Single source of truth for the raw -> app schema mapping.
 SELECT_SQL = f"""
-SELECT
+SELECT DISTINCT
     accident_no                              AS crash_id,
     accident_date                            AS crash_date,
     accident_time                            AS crash_time,
@@ -45,8 +45,26 @@ SELECT
     postcode_crash                           AS postcode,
     year,
     month
-FROM read_csv_auto('{CSV_IN}')
+FROM read_csv_auto('{CSV_IN.replace(chr(39), chr(39) * 2)}')
 """
+
+
+def validate_crashes(con):
+    n_rows, n_ids = con.execute(
+        "SELECT COUNT(*), COUNT(DISTINCT crash_id) FROM crashes"
+    ).fetchone()
+    if not n_rows or n_rows != n_ids:
+        raise ValueError("Expected one non-null crash_id per row; conflicting crash details or missing IDs found")
+    invalid = con.execute("""
+        SELECT COUNT(*) FROM crashes WHERE
+            crash_hour IS NULL OR crash_hour NOT BETWEEN 0 AND 23
+            OR crash_date IS NULL OR year IS NULL OR year <> EXTRACT(year FROM crash_date)
+            OR year NOT BETWEEN 2012 AND 2025
+            OR council_area IS NULL OR trim(council_area) = ''
+            OR severity IS NULL OR severity NOT IN ('Fatal', 'Serious Injury', 'Other Injury')
+    """).fetchone()[0]
+    if invalid:
+        raise ValueError(f"Found {invalid} invalid crash records")
 
 
 def main():
@@ -56,7 +74,11 @@ def main():
     con = duckdb.connect()
     con.execute(f"CREATE VIEW crashes AS {SELECT_SQL}")
 
-    # --- Sanity checks: confirm the data matches expectations -----------------
+    # Collapse identical crash details, but never arbitrarily choose between
+    # conflicting records for one crash ID.
+    validate_crashes(con)
+
+    # --- Dataset summary ------------------------------------------------------
     (n_rows,) = con.execute("SELECT COUNT(*) FROM crashes").fetchone()
     y_min, y_max = con.execute("SELECT MIN(year), MAX(year) FROM crashes").fetchone()
     sev = con.execute(
@@ -75,7 +97,7 @@ def main():
 
     # --- Write Parquet --------------------------------------------------------
     con.execute(
-        f"COPY (SELECT * FROM crashes) TO '{PARQUET_OUT}' "
+        f"COPY (SELECT * FROM crashes) TO '{PARQUET_OUT.replace(chr(39), chr(39) * 2)}' "
         "(FORMAT PARQUET, COMPRESSION ZSTD)"
     )
 

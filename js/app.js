@@ -14,6 +14,8 @@ const state = { yearMin: 2012, yearMax: 2025 };
 let conn = null;
 let chart = null;
 let activeQuery = null;
+let requestId = 0;
+let syncYears = () => {};
 
 // ---- DuckDB init ----------------------------------------------------------
 async function initDuckDB() {
@@ -29,9 +31,13 @@ async function initDuckDB() {
 
   conn = await db.connect();
   const url = new URL("data/crashes.parquet", location.href).href;
-  const parquetBytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Data download failed (HTTP ${response.status})`);
+  const parquetBytes = new Uint8Array(await response.arrayBuffer());
   await db.registerFileBuffer("crashes.parquet", parquetBytes);
   await conn.query(`CREATE VIEW crashes AS SELECT * FROM 'crashes.parquet'`);
+  const [metadata] = await runSql("SELECT COUNT(*) AS total FROM crashes");
+  document.getElementById("crash-count").textContent = metadata.total.toLocaleString();
 }
 
 // Arrow rows contain BigInt for COUNT(*); coerce to plain JS values.
@@ -157,15 +163,48 @@ function caption(spec, rows) {
 
 function renderTable(rows) {
   const wrap = document.getElementById("table-wrap");
-  if (!rows.length) { wrap.innerHTML = "<p>No data.</p>"; return; }
+  wrap.replaceChildren();
+  if (!rows.length) { wrap.textContent = "No data."; return; }
   const cols = Object.keys(rows[0]);
-  wrap.innerHTML = `<table><thead><tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead>
-    <tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td>${r[c]}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  const table = document.createElement("table");
+  const header = table.createTHead().insertRow();
+  for (const col of cols) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = col;
+    header.append(th);
+  }
+  const body = table.createTBody();
+  for (const row of rows) {
+    const tr = body.insertRow();
+    for (const col of cols) tr.insertCell().textContent = row[col] ?? "";
+  }
+  wrap.append(table);
+}
+
+function showUnsupported(message) {
+  requestId++; // An earlier query must not replace this message when it finishes.
+  activeQuery = null;
+  destroyChart();
+  document.getElementById("result-title").textContent = "Unable to answer this question";
+  document.getElementById("result-answer").textContent = message;
+  document.getElementById("result-caption").textContent = "Try one of the quick questions above.";
+  document.getElementById("chart").style.display = "none";
+  document.getElementById("stat").style.display = "none";
+  document.querySelector(".chart-box").classList.add("stat-mode");
+  renderTable([]);
+  setStatus("");
 }
 
 // ---- Dispatch -------------------------------------------------------------
 async function run(builderName, params = {}, yearOverride = null, remember = true) {
-  if (remember) activeQuery = { builderName, params, yearOverride };
+  const currentRequest = ++requestId;
+  if (yearOverride) {
+    state.yearMin = yearOverride.min;
+    state.yearMax = yearOverride.max;
+    syncYears();
+  }
+  if (remember) activeQuery = { builderName, params };
   const filter = yearOverride
     ? { yearMin: yearOverride.min, yearMax: yearOverride.max }
     : { yearMin: state.yearMin, yearMax: state.yearMax };
@@ -173,9 +212,11 @@ async function run(builderName, params = {}, yearOverride = null, remember = tru
   setStatus("Running…");
   try {
     const rows = await runSql(spec.sql);
+    if (currentRequest !== requestId) return;
     renderResult(spec, rows);
     setStatus("");
   } catch (e) {
+    if (currentRequest !== requestId) return;
     setStatus(`Query error: ${e.message}`);
     console.error(e);
   }
@@ -184,11 +225,11 @@ async function run(builderName, params = {}, yearOverride = null, remember = tru
 function handleSearch(text) {
   const intent = parseIntent(text);
   if (intent?.unsupported) {
-    setStatus(intent.message);
+    showUnsupported(intent.message);
     return;
   }
   if (!intent) {
-    setStatus(`I couldn't answer "${text}" from the current dataset. Try a council, year, severity, time, weekday, or intersection question.`);
+    showUnsupported(`I couldn't answer "${text}" from the current dataset. Try a council, year, severity, time, weekday, or intersection question.`);
     return;
   }
   run(intent.builder, intent.params, intent.year);
@@ -219,7 +260,10 @@ function wireUI() {
 
   document.getElementById("toggle-data").addEventListener("click", () => {
     const w = document.getElementById("table-wrap");
-    w.style.display = w.style.display === "none" ? "block" : "none";
+    w.hidden = !w.hidden;
+    const button = document.getElementById("toggle-data");
+    button.textContent = w.hidden ? "Show data ▾" : "Hide data ▴";
+    button.setAttribute("aria-expanded", String(!w.hidden));
   });
 }
 
@@ -256,6 +300,11 @@ function wireRangeSlider() {
 
   min.addEventListener("input", () => onInput("min"));
   max.addEventListener("input", () => onInput("max"));
+  syncYears = () => {
+    min.value = state.yearMin;
+    max.value = state.yearMax;
+    paint();
+  };
   paint();
 }
 

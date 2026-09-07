@@ -22,39 +22,26 @@
     import { parseIntent } from "../js/intent.js";
     import { cases } from "./cases.js";
 
-    const THRESHOLD = 0.9;
-    const fmt = (g) => g
-      ? g.builder + (g.params.council ? " / " + g.params.council : "") +
-        (g.year ? " / " + JSON.stringify(g.year) : "")
-      : "null";
-
+    import { matches } from "./assertions.js";
     let pass = 0;
-    const rows = [];
-
+    const results = document.getElementById("results");
     for (const c of cases) {
-      const got = parseIntent(c.input);
-      const ok = c.expectNull
-        ? got === null
-        : got && got.builder === c.builder &&
-          (c.council == null || got.params.council === c.council) &&
-          (c.year == null ||
-            (got.year && got.year.min === c.year.min && got.year.max === c.year.max));
+      const got = parseIntent(c.input), ok = matches(c, got);
       if (ok) pass++;
-      const exp = c.expectNull ? "null" : c.builder +
-        (c.council ? " / " + c.council : "") +
-        (c.year ? " / " + JSON.stringify(c.year) : "");
-      rows.push(`<div class="row">
-        <span class="${ok ? "pass" : "fail"}">${ok ? "✓" : "✗"}</span>
-        "${c.input}"
-        ${ok ? "" : `<div class="meta">expected: ${exp}<br>got: ${fmt(got)}</div>`}
-      </div>`);
+      const row = document.createElement("div");
+      row.className = "row " + (ok ? "pass" : "fail");
+      row.textContent = `${ok ? "✓" : "✗"} ${c.input}`;
+      if (!ok) {
+        const details = document.createElement("pre");
+        details.textContent = JSON.stringify({ expected: c, got }, null, 2);
+        row.append(details);
+      }
+      results.append(row);
     }
-
-    const acc = pass / cases.length;
     const el = document.getElementById("score");
-    el.textContent = `${pass}/${cases.length} (${(acc * 100).toFixed(1)}%) — ${acc >= THRESHOLD ? "PASS" : "FAIL"}`;
-    el.className = "score " + (acc >= THRESHOLD ? "pass" : "fail");
-    document.getElementById("results").innerHTML = rows.join("");
+    const ok = pass === cases.length;
+    el.textContent = `${pass}/${cases.length} — ${ok ? "PASS" : "FAIL"}`;
+    el.className = "score " + (ok ? "pass" : "fail");
   </script>
 </body>
 </html>

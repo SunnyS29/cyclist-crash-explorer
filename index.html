@@ -130,7 +130,7 @@
     #toggle-data { background:none; border:none; color:var(--amber); cursor:pointer;
                    font-size:13px; padding:12px 0 0; font-weight:600; }
     #toggle-data:hover { text-decoration:underline; }
-    #table-wrap { display:none; margin-top:12px; max-height:340px; overflow:auto;
+    #table-wrap { margin-top:12px; max-height:340px; overflow:auto;
                   border:1px solid var(--line); border-radius:10px; }
     table { width:100%; border-collapse:collapse; font-size:13px; }
     th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); }
@@ -162,8 +162,8 @@
   <header>
     <h1>Melbourne Cyclist Crash Explorer</h1>
     <div class="badges">
-      <span class="badge"><b>13</b> years</span>
-      <span class="badge"><b>16,056</b> crashes</span>
+      <span class="badge"><b>2012–July 2025</b> coverage</span>
+      <span class="badge"><b id="crash-count">15,485</b> distinct crashes</span>
       <span class="badge">VicRoads <b>2012–2025</b></span>
     </div>
   </header>
@@ -173,50 +173,55 @@
 
     <div id="app" style="display:none">
       <div class="search">
-        <input id="search" placeholder='Ask a question or type a council… e.g. "worst suburbs", "Yarra", "fatal crashes 2023"' />
+        <input id="search" aria-label="Ask a crash-data question" placeholder='Ask a question or type a council… e.g. "worst suburbs", "Yarra", "fatal crashes 2023"' />
         <button id="search-btn">Search</button>
       </div>
 
       <div class="section-label">Quick questions</div>
       <div class="cards">
         <button data-card="worstCouncils">Which council has the most crashes?</button>
-        <button data-card="yearlyTrend">Is it getting safer over time?</button>
+        <button data-card="yearlyTrend">How have crash counts changed?</button>
         <button data-card="byHour">When do most crashes happen?</button>
         <button data-card="bySeverity">How serious are crashes?</button>
         <button data-card="fatalCount">How many were fatal?</button>
-        <button data-card="byRoadGeometry">Most dangerous road types?</button>
+        <button data-card="byRoadGeometry">Which intersection types have the most crashes?</button>
       </div>
 
       <div class="filter">
         <span>Year range</span>
         <div class="range">
           <div class="track"><div class="fill" id="range-fill"></div></div>
-          <input id="year-min" type="range" min="2012" max="2025" step="1" value="2012" />
-          <input id="year-max" type="range" min="2012" max="2025" step="1" value="2025" />
+          <input aria-label="First year" id="year-min" type="range" min="2012" max="2025" step="1" value="2012" />
+          <input aria-label="Last year" id="year-max" type="range" min="2012" max="2025" step="1" value="2025" />
         </div>
         <span id="year-label">2012–2025</span>
       </div>
 
       <div class="panel">
         <h2 id="result-title">Results</h2>
-        <p id="result-answer"></p>
+        <p id="result-answer" aria-live="polite"></p>
         <p id="result-caption"></p>
         <div class="chart-box">
           <canvas id="chart"></canvas>
           <div id="stat"></div>
         </div>
-        <div id="status"></div>
-        <button id="toggle-data">Show raw data ▾</button>
-        <div id="table-wrap"></div>
+        <div id="status" role="status" aria-live="polite"></div>
+        <button id="toggle-data" aria-controls="table-wrap" aria-expanded="false">Show data ▾</button>
+        <div id="table-wrap" hidden></div>
       </div>
     </div>
   </main>
 
   <footer>
-    Data: VicRoads cyclist crash records 2012-2025. Static dataset, not live.<br>
+    Data: VicRoads cyclist crash records, January 2012–July 2025. Static dataset, not live.<br>
+    Counts describe recorded crashes, not cycling risk or the number of people injured.<br>
     Built by Sunny Sangar with DuckDB WASM + Chart.js. Copyright 2026 Sunny Sangar. All rights reserved.
   </footer>
 
-  <script type="module" src="js/app.js?v=7"></script>
+  <script type="module">
+    import("./js/app.js?v=8").catch((error) => {
+      document.getElementById("loading").textContent = `Unable to load the app: ${error.message}. Please check your connection and reload.`;
+    });
+  </script>
 </body>
 </html>

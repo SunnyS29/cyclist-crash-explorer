@@ -44,178 +44,148 @@ const SUBURB_ALIASES = {
   brighton: "BAYSIDE",
 };
 
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const has = (text, ...phrases) => phrases.some((phrase) =>
+  new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text));
+const unsupported = (message) => ({ unsupported: true, message, matchedOn: "unsupported" });
+
 function extractYear(text) {
-  const since = text.match(/\bsince\s+(20\d{2})\b/);
-  if (since) {
-    const y = +since[1];
-    if (y >= 2012 && y <= 2025) return { min: y, max: 2025 };
+  const years = [...text.matchAll(/\b((?:19|20|21)\d{2})\b/g)].map((m) => +m[1]);
+  if (!years.length) return null;
+  if (years.length > 2 || years.some((y) => y < 2012 || y > 2025))
+    return unsupported("The available data covers 2012 to 31 July 2025. Please choose years within that coverage.");
+  const comparisons = [...text.matchAll(/\b(since|after|before)\s+((?:19|20|21)\d{2})\b/g)];
+  if (comparisons.length && years.length !== 1)
+    return unsupported("Please specify one year comparison or a single range, such as 2018–2020.");
+  let min = Math.min(...years), max = Math.max(...years);
+  if (comparisons.length) {
+    const [, op, value] = comparisons[0], year = +value;
+    min = op === "before" ? 2012 : year + (op === "after" ? 1 : 0);
+    max = op === "before" ? year - 1 : 2025;
   }
-
-  const after = text.match(/\bafter\s+(20\d{2})\b/);
-  if (after) {
-    const y = +after[1] + 1;
-    if (y >= 2012 && y <= 2025) return { min: y, max: 2025 };
-  }
-
-  const before = text.match(/\bbefore\s+(20\d{2})\b/);
-  if (before) {
-    const y = +before[1] - 1;
-    if (y >= 2012 && y <= 2025) return { min: 2012, max: y };
-  }
-
-  const ys = [...text.matchAll(/\b(20\d{2})\b/g)]
-    .map((m) => +m[1])
-    .filter((y) => y >= 2012 && y <= 2025);
-  if (!ys.length) return null;
-  return { min: Math.min(...ys), max: Math.max(...ys) };
+  if (min > max) return unsupported("There are no covered years in that interval. Data covers 2012 to 31 July 2025.");
+  return { min, max };
 }
 
-function findCouncil(text) {
-  const t = text.toLowerCase();
-  for (const [sub, lga] of Object.entries(SUBURB_ALIASES)) {
-    if (t.includes(sub)) return lga;
+function findCouncils(text) {
+  // Match the longest phrases first, removing matched text so South Yarra
+  // doesn't also match Yarra. Word boundaries avoid accidental substrings.
+  const names = [...Object.entries(SUBURB_ALIASES), ...COUNCILS.map((c) => [c.toLowerCase(), c])]
+    .sort((a, b) => b[0].length - a[0].length);
+  const found = new Set();
+  let remaining = text;
+  for (const [name, council] of names) {
+    const pattern = new RegExp(`\\b${name}\\b`, "g");
+    if (pattern.test(remaining)) {
+      found.add(council);
+      remaining = remaining.replace(pattern, " ");
+    }
   }
-  // Longest council names first so "PORT PHILLIP" wins over "PORT".
-  const byLen = [...COUNCILS].sort((a, b) => b.length - a.length);
-  for (const c of byLen) {
-    if (t.includes(c.toLowerCase())) return c;
-  }
-  return null;
-}
-
-const has = (t, ...words) => words.some((w) => t.includes(w));
-const hasWord = (t, word) => new RegExp(`\\b${word}\\b`).test(t);
-
-function findDay(text) {
-  const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
-  const day = days.find((d) => text.includes(d));
-  return day ? day[0].toUpperCase() + day.slice(1) : null;
-}
-
-function findHour(text) {
-  const m = text.match(/\b([01]?\d|2[0-3])\s*(am|pm)?\b/);
-  if (!m) return null;
-  let hour = +m[1];
-  if (m[2] === "pm" && hour < 12) hour += 12;
-  if (m[2] === "am" && hour === 12) hour = 0;
-  return hour;
+  return [...found];
 }
 
 function unsupportedMessage(text) {
-  if (has(text, "near me", "nearby", "near ")) {
-    return "I can't answer live nearby searches from this static dataset. Try a council or suburb alias, like \"Yarra\" or \"Brunswick\".";
-  }
-  if (has(text, "station", "street", "road name", "sydney road")) {
-    return "I can't search exact stations or street names because this dataset is summarised by council area, not address or road name.";
-  }
-  if (has(text, "per capita", "per cyclist", "per km", "rate", "population")) {
-    return "I can show raw crash counts, but not true risk rates because this dataset has no population, cycling-volume, or road-length denominator.";
-  }
-  if (has(text, "helmet", "bike lane", "school zone")) {
-    return "I can't answer that from the available columns. This explorer supports council, year, severity, time, weekday, and intersection-geometry questions.";
-  }
+  if (has(text, "near me", "nearby", "near"))
+    return "Nearby searches aren't supported. Try a council or a supported suburb alias, such as Yarra or Brunswick.";
+  if (has(text, "station", "stations", "street", "streets", "road name", "sydney road"))
+    return "Exact streets and stations aren't searchable. Try a council or an intersection-geometry question.";
+  if (has(text, "per capita", "per cyclist", "per km", "rate", "rates", "population"))
+    return "Only raw crash counts are available. Risk rates need population or cycling-exposure data that this extract does not contain.";
+  if (has(text, "helmet", "helmets", "bike lane", "bike lanes", "school zone", "school zones"))
+    return "That detail isn't available. Try council, year, severity, hour, weekday, or intersection geometry.";
+  if (has(text, "minor", "slight"))
+    return 'There is no minor-injury category in this extract. Try "other injury", "serious injury", or "injury severity".';
   return null;
+}
+
+function extractHours(text) {
+  if (/\b\d{1,2}:(?!00)\d{2}/.test(text))
+    return unsupported("This explorer groups time by whole hours. Try 8am or between 8am and 10am.");
+  text = text.replace(/\b(\d{1,2}):00\s*/g, "$1");
+  const matches = [...text.matchAll(/\b(\d{1,2})\s*(am|pm)\b/g)];
+  const at = text.match(/\bat\s+(\d{1,2})\b(?!\s*(?:am|pm))/);
+  if (/\b(?:between|from)\s+\d{1,2}\b/.test(text) && matches.length !== 2 ||
+      /\b\d{1,2}\s*(?:am|pm)?\s*[-–]\s*\d{1,2}\s*(?:am|pm)\b/.test(text))
+    return unsupported("Please write both hours explicitly, such as between 8am and 10am.");
+  if (!matches.length && at) matches.push([at[0], at[1], null]);
+  if (!matches.length) return {};
+  const hours = matches.map(([, value, suffix]) => {
+    const hour = +value;
+    if (suffix && (hour < 1 || hour > 12) || !suffix && hour > 23) return null;
+    return suffix ? hour % 12 + (suffix === "pm" ? 12 : 0) : hour;
+  });
+  if (hours.some((h) => h == null)) return unsupported("Please use valid hours, such as 8am or 16:00.");
+  if (hours.length === 1) return { hour: hours[0] };
+  if (hours.length !== 2 || !/\b(?:between|from)\b/.test(text) || hours[0] > hours[1])
+    return unsupported("Please use one hour or an ascending range, such as between 8am and 10am. Overnight ranges aren't supported.");
+  return { hourMin: hours[0], hourMax: hours[1] };
 }
 
 export function parseIntent(raw) {
   const text = String(raw || "").trim().toLowerCase();
   if (!text) return null;
-  const year = extractYear(text);
-  const council = findCouncil(text);
-
-  // Order matters: most specific intents first.
-  if (has(text, "non-fatal", "non fatal", "not fatal"))
-    return {
-      builder: "filteredCount",
-      params: { council, notSeverity: "Fatal", label: "non-fatal crashes" },
-      year,
-      matchedOn: "non-fatal",
-    };
-
-  if (has(text, "fatal", "death", "killed", "died")) {
-    if (council)
-      return {
-        builder: "filteredCount",
-        params: { council, severity: "Fatal", label: "fatal crashes" },
-        year,
-        matchedOn: "fatal-council",
-      };
-    return { builder: "fatalCount", params: {}, year, matchedOn: "fatal" };
-  }
-
-  if (has(text, "serious", "injur") && council)
-    return {
-      builder: "filteredCount",
-      params: { council, severity: "Serious Injury", label: "serious injury crashes" },
-      year,
-      matchedOn: "serious-council",
-    };
-
-  if (has(text, "serious", "severity", "how serious", "injur"))
-    return { builder: "bySeverity", params: {}, year, matchedOn: "severity" };
-
-  if (has(text, "intersection", "road", "junction", "roundabout"))
-    return { builder: "byRoadGeometry", params: { council }, year, matchedOn: "road" };
-
-  if (has(text, "trend", "over time", "safer", "getting", "by year", "each year", "yearly"))
-    return { builder: "yearlyTrend", params: {}, year, matchedOn: "trend" };
-
-  if (has(text, "most dangerous year", "worst year", "most crashes year", "year had the most"))
-    return { builder: "dangerousYears", params: {}, year, matchedOn: "dangerous-year" };
-
-  if (has(text, "safest time", "safest hour", "safe time", "least dangerous time")) {
-    const period = has(text, "weekend", "saturday", "sunday") ? "weekend" :
-      has(text, "weekday", "monday", "tuesday", "wednesday", "thursday", "friday") ? "weekday" : "all";
-    return { builder: "safestTime", params: { period }, year, matchedOn: "safest-time" };
-  }
-
-  if (has(text, "rush hour", "commute") || hasWord(text, "morning") || hasWord(text, "evening")) {
-    const period = hasWord(text, "morning") ? "morning" :
-      hasWord(text, "evening") ? "evening" : "commute";
-    return { builder: "rushHour", params: { period }, year, matchedOn: "rush-hour" };
-  }
-
-  if ((has(text, "what time", "time of day", "hour", "when do", "when are", "weekend") ||
-       (has(text, "most dangerous", "dangerous", "worst") && has(text, "time", "times", "hour", "hours"))) &&
-      !has(text, "intersection", "road", "junction", "roundabout"))
-    return { builder: "byHour", params: { council }, year, matchedOn: "time" };
-
-  const day = findDay(text);
-  if (day && !has(text, "day of week", "which day", "what day"))
-    return {
-      builder: "filteredCount",
-      params: { council, day, label: `${day} crashes` },
-      year,
-      matchedOn: "specific-day",
-    };
-
-  const hour = findHour(text);
-  if (hour != null && has(text, "crash", "crashes"))
-    return {
-      builder: "filteredCount",
-      params: { council, hour, label: `${hour}:00 crashes` },
-      year,
-      matchedOn: "specific-hour",
-    };
-
-  if (has(text, "day of week", "which day", "what day", "weekday"))
-    return { builder: "byDayOfWeek", params: {}, year, matchedOn: "day" };
-
-  if (has(text, "safest", "safe", "least dangerous", "fewest crashes", "lowest crashes"))
-    return { builder: "safestCouncils", params: {}, year, matchedOn: "safest" };
-
-  if (has(text, "worst", "most dangerous", "dangerous", "most crashes",
-                "top", "council", "suburb", "area"))
-    return { builder: "worstCouncils", params: {}, year, matchedOn: "worst" };
-
-  if (council)
-    return { builder: "council", params: { council }, year, matchedOn: "council" };
-
-  // A year range with no other signal -> show the trend over that range.
-  if (year) return { builder: "yearlyTrend", params: {}, year, matchedOn: "year-only" };
-
   const message = unsupportedMessage(text);
-  if (message) return { unsupported: true, message, matchedOn: "unsupported" };
+  if (message) return unsupported(message);
+  const year = extractYear(text);
+  if (year?.unsupported) return year;
+  const councils = findCouncils(text);
+  if (councils.length > 1) return unsupported("Please search one council at a time; council-to-council comparisons aren't supported.");
+  const params = {};
+  if (councils.length) params.council = councils[0];
+  const days = DAYS.filter((day) => has(text, day));
+  if (days.length > 1) return unsupported("Please choose one named weekday, or use weekdays or weekends.");
+  if (days.length) params.day = days[0];
+  if (has(text, "weekend", "weekends")) params.dayPeriod = "weekend";
+  if (has(text, "weekday", "weekdays")) {
+    if (params.dayPeriod) return unsupported("Please choose weekdays or weekends separately.");
+    params.dayPeriod = "weekday";
+  }
+  if (params.day && params.dayPeriod &&
+      (DAYS.indexOf(params.day) >= 5) !== (params.dayPeriod === "weekend"))
+    return unsupported("The named day conflicts with the requested weekday/weekend filter.");
+  const hours = extractHours(text);
+  if (hours.unsupported) return hours;
+  Object.assign(params, hours);
 
+  const nonFatal = has(text, "non-fatal", "non fatal", "not fatal");
+  const fatal = !nonFatal && has(text, "fatal", "fatality", "fatalities", "death", "deaths", "killed", "died");
+  const serious = has(text, "serious") && !has(text, "how serious");
+  const other = /\bother injur(?:y|ies)\b/.test(text);
+  if ([nonFatal || fatal, serious, other].filter(Boolean).length > 1 ||
+      /\b(?:not|non)[ -](?:serious|other)\b/.test(text))
+    return unsupported("Please choose one severity category, or ask for an injury-severity breakdown.");
+  if (nonFatal) params.notSeverity = "Fatal";
+  if (fatal) params.severity = "Fatal";
+  if (serious) params.severity = "Serious Injury";
+  if (other) params.severity = "Other Injury";
+
+  // Aggregation is chosen only after all supported dimensions are collected.
+  const result = (builder, matchedOn) => ({ builder, params, year, matchedOn });
+  if (has(text, "most dangerous year", "worst year", "most crashes year", "year had the most"))
+    return result("dangerousYears", "dangerous-year");
+  if (has(text, "trend", "over time", "safer", "getting", "by year", "each year", "yearly"))
+    return result("yearlyTrend", "trend");
+  if (has(text, "intersection", "intersections", "road", "roads", "junction", "roundabout"))
+    return result("byRoadGeometry", "road");
+  if (has(text, "safest time", "safest times", "safest hour", "safe time", "least dangerous time"))
+    return result("safestTime", "safest-time");
+  if (has(text, "rush hour", "commute", "morning", "evening")) {
+    params.period = has(text, "morning") ? "morning" : has(text, "evening") ? "evening" : "commute";
+    return result("rushHour", "rush-hour");
+  }
+  if (has(text, "day of week", "which day", "what day")) return result("byDayOfWeek", "day");
+  if (has(text, "what time", "time of day", "hour", "hours", "when do", "when are", "dangerous times", "dangerous time"))
+    return result("byHour", "time");
+  if (!params.council && has(text, "safest", "safe", "least dangerous", "fewest crashes", "lowest crashes"))
+    return result("safestCouncils", "safest");
+  if (!params.council && has(text, "worst", "most dangerous", "dangerous", "most crashes", "top", "council", "councils", "suburb", "suburbs", "area", "areas"))
+    return result("worstCouncils", "worst");
+  if (params.severity === "Fatal" && Object.keys(params).length === 1) return result("fatalCount", "fatal");
+  if (params.severity || params.notSeverity || params.day || params.hour != null || params.hourMin != null)
+    return result("filteredCount", "filtered-count");
+  if (has(text, "severity", "how serious", "injury", "injuries")) return result("bySeverity", "severity");
+  if (params.dayPeriod) return result(params.dayPeriod === "weekend" ? "byHour" : "byDayOfWeek", "day-period");
+  if (params.council) return result("council", "council");
+  if (year) return result("yearlyTrend", "year-only");
   return null;
 }
